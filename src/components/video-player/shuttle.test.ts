@@ -154,6 +154,30 @@ test("focused buttons keep native Space unless focus came from a pointer", () =>
   assert.equal(playbackShortcut({ ...event, key: "." }, button, true), "stepForward");
 });
 
+test("comma and period step one frame in public and editor players alike", () => {
+  assert.equal(playbackShortcut({ ...event, key: "," }, null, false), "stepBack");
+  assert.equal(playbackShortcut({ ...event, key: "." }, null, false), "stepForward");
+  assert.equal(playbackShortcut({ ...event, key: "," }, null, true), "stepBack");
+  assert.equal(playbackShortcut({ ...event, key: "." }, null, true), "stepForward");
+  // Held keys keep stepping; typing in editable controls never steps.
+  assert.equal(playbackShortcut({ ...event, key: ".", repeat: true }, null, false), "stepForward");
+  assert.equal(playbackShortcut({ ...event, key: ".", ctrlKey: true }, null, false), null);
+  assert.equal(playbackShortcut({ ...event, key: "," }, { closest: () => ({}) }, false), null);
+});
+
+test("frame stepping uses the supplied rate and lands on frame boundaries", () => {
+  const f = fixture();
+  f.controller.step(1, 24);
+  assert.ok(Math.abs(f.media.currentTime - (10 + 1 / 24)) < 1e-9);
+  assert.equal(f.controller.playing, false);
+  // From a mid-frame time the next step lands on the neighbouring frame.
+  f.media.currentTime = 10.05;
+  f.controller.step(1, 30);
+  assert.ok(Math.abs(f.media.currentTime - 302 / 30) < 1e-9);
+  f.controller.step(-1, 30);
+  assert.ok(Math.abs(f.media.currentTime - 301 / 30) < 1e-9);
+});
+
 test("shuttling from a custom forward rate uses the standard speed ladder", () => {
   const f = fixture();
   f.controller.setRate(1.25);

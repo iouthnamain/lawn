@@ -23,8 +23,14 @@ and [default shortcuts](https://support.apple.com/guide/final-cut-pro/keyboard-s
 Typing, editable controls, menus, and dialogs are excluded. Tab-focused buttons
 retain their native Space action. Other browser modifier combinations are left
 alone. Public players keep their local focus boundary and five-second arrow seeks.
-Comma/period remain optional paused frame-step aliases.
+In every player, comma/period pause and step one frame, and the step buttons
+next to Play do the same. While paused, the control row shows the
+`HH:MM:SS:FF` timecode and absolute frame number, and stepping reports that
+exact frame time to comment inputs.
 
-Lawn currently has no source frame-rate metadata, so stepping uses 1/30 second,
-an approximation for non-30-fps and variable-frame-rate media. Reverse and 32x
-use paused seeks without audio; smoothness depends on source seek/decode latency.
+Lawn has no source frame-rate metadata, so stepping detects the rate from
+`requestVideoFrameCallback` presented frames while playing (or uses the
+`frameRate` prop when a caller knows it) and falls back to 1/30 second when
+neither is available — still an approximation for variable-frame-rate media.
+Reverse and 32x use paused seeks without audio; smoothness depends on source
+seek/decode latency.

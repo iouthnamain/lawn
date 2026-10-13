@@ -11,6 +11,13 @@ import {
   useImperativeHandle,
 } from "react";
 import { createShuttleController, bindPlaybackShortcuts, type PlaybackAction } from "./shuttle";
+import {
+  estimateFrameRate,
+  formatTimecode,
+  frameIndexAtTime,
+  resolveFrameRate,
+  steppedTime,
+} from "./frame";
 import type Hls from "hls.js";
 import {
   Play,
@@ -27,6 +34,8 @@ import {
   Check,
   ChevronDown,
   RectangleHorizontal,
+  StepBack,
+  StepForward,
 } from "lucide-react";
 import { cn, formatDuration, formatTimestamp } from "@/lib/utils";
 import { triggerDownload } from "@/lib/download";
@@ -75,6 +84,8 @@ interface VideoPlayerProps {
   }>;
   selectedQualityId?: string;
   onSelectQuality?: (id: string) => void;
+  /** Known source frame rate for frame stepping; detected at runtime when omitted. */
+  frameRate?: number;
   /** Render controls below the video frame instead of overlaid. Ideal for mobile. */
   controlsBelow?: boolean;
   editorControls?: boolean;
@@ -135,6 +146,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(funct
     qualityOptionsConfig,
     selectedQualityId,
     onSelectQuality,
+    frameRate: frameRateProp,
     controlsBelow = false,
     editorControls = false,
     theaterMode = false,
@@ -165,6 +177,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(funct
   const [isDownloading, setIsDownloading] = useState(false);
   const [loopEnabled, setLoopEnabled] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [detectedFrameRate, setDetectedFrameRate] = useState<number | null>(null);
   const [qualityMenuOpen, setQualityMenuOpen] = useState(false);
   const [qualityOptions, setQualityOptions] = useState<QualityLevelOption[]>([]);
   const [selectedQualityLevel, setSelectedQualityLevel] = useState<number>(AUTO_QUALITY_LEVEL);
@@ -199,6 +212,42 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(funct
       shuttleRef.current = null;
     };
   }, []);
+
+  const frameRate = resolveFrameRate(frameRateProp ?? detectedFrameRate);
+
+  // Detect the real frame rate from presented frames while playing; stepping
+  // falls back to 30 fps until (and unless) a rate is measured.
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || typeof video.requestVideoFrameCallback !== "function") return;
+    setDetectedFrameRate(null);
+    let cancelled = false;
+    let callbackId: number | null = null;
+    let previous: { mediaTime: number; presentedFrames: number } | null = null;
+    const onFrame: VideoFrameRequestCallback = (_now, metadata) => {
+      if (cancelled) return;
+      callbackId = video.requestVideoFrameCallback(onFrame);
+      const sample = {
+        mediaTime: metadata.mediaTime,
+        presentedFrames: metadata.presentedFrames,
+      };
+      // Wait for a stable window before trusting the estimate.
+      if (previous && sample.presentedFrames - previous.presentedFrames >= 10) {
+        const estimated = estimateFrameRate(previous, sample);
+        if (estimated !== null) {
+          previous = sample;
+          setDetectedFrameRate((current) => (current === estimated ? current : estimated));
+          return;
+        }
+      }
+      if (!previous) previous = sample;
+    };
+    callbackId = video.requestVideoFrameCallback(onFrame);
+    return () => {
+      cancelled = true;
+      if (callbackId !== null) video.cancelVideoFrameCallback(callbackId);
+    };
+  }, [src, sourceRevision]);
 
   const groupedMarkers = useMemo(() => {
     if (!duration || comments.length === 0) return [] as { position: number; comment: Comment }[];
@@ -269,6 +318,20 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(funct
       showControls();
     },
     [applyTime, showControls],
+  );
+
+  // Pause-and-step: lands on an exact frame boundary and reports that exact
+  // time, so a comment written while stepped is stamped with the stepped frame.
+  const handleStepFrames = useCallback(
+    (deltaFrames: number) => {
+      const video = videoRef.current;
+      if (!video) return;
+      shuttleRef.current?.pause();
+      const videoDuration = Number.isFinite(video.duration) ? video.duration : undefined;
+      applyTime(steppedTime(video.currentTime, deltaFrames, frameRate, videoDuration));
+      showControls();
+    },
+    [applyTime, frameRate, showControls],
   );
 
   const togglePlay = useCallback(() => {
@@ -363,16 +426,16 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(funct
         shuttleRef.current?.playAt(0.5);
         break;
       case "stepBackTen":
-        shuttleRef.current?.step(-10);
+        handleStepFrames(-10);
         break;
       case "stepForwardTen":
-        shuttleRef.current?.step(10);
+        handleStepFrames(10);
         break;
       case "stepBack":
-        shuttleRef.current?.step(-1);
+        handleStepFrames(-1);
         break;
       case "stepForward":
-        shuttleRef.current?.step(1);
+        handleStepFrames(1);
         break;
       case "seekBack":
         handleSeekBy(-5);
@@ -1055,6 +1118,34 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(funct
           {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="ml-0.5 h-4 w-4" />}
         </button>
 
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            handleStepFrames(-1);
+          }}
+          className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-white/10 transition hover:border-white/25 hover:bg-white/20"
+          aria-label="Step back one frame"
+          title="Step back one frame (,)"
+          aria-keyshortcuts=","
+        >
+          <StepBack className="h-4 w-4" aria-hidden="true" />
+        </button>
+
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            handleStepFrames(1);
+          }}
+          className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-white/10 transition hover:border-white/25 hover:bg-white/20"
+          aria-label="Step forward one frame"
+          title="Step forward one frame (.)"
+          aria-keyshortcuts="."
+        >
+          <StepForward className="h-4 w-4" aria-hidden="true" />
+        </button>
+
         <div className="hidden items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-2 py-1 sm:flex">
           <button
             type="button"
@@ -1087,9 +1178,20 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(funct
         </div>
 
         <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-white/90">
-          <span className="font-mono">
-            {formatDuration(displayTime)} / {formatDuration(duration || 0)}
-          </span>
+          {isPlaying ? (
+            <span className="inline-block min-w-[19ch] text-center font-mono">
+              {formatDuration(displayTime)} / {formatDuration(duration || 0)}
+            </span>
+          ) : (
+            <span
+              className="inline-block min-w-[19ch] text-center font-mono"
+              aria-label={`Paused at timecode ${formatTimecode(displayTime, frameRate)}, frame ${frameIndexAtTime(displayTime, frameRate)} of ${formatDuration(duration || 0)}`}
+              title={`Timecode ${formatTimecode(displayTime, frameRate)} at ${frameRate} fps. Step with , and .`}
+            >
+              {formatTimecode(displayTime, frameRate)} · Frame{" "}
+              {frameIndexAtTime(displayTime, frameRate)}
+            </span>
+          )}
         </div>
 
         <div className="ml-auto flex items-center gap-2">
@@ -1280,8 +1382,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(funct
         aria-label="Video player"
         aria-description={
           editorControls
-            ? "Space toggles playback. K pauses. J and L shuttle backward and forward up to 32 times speed. Hold K and tap J or L to step, or hold both for half speed. Arrows step one frame; Shift and arrows step ten frames, using 30 fps. F toggles fullscreen. M toggles mute."
-            : "Space toggles playback. K pauses. Arrows seek five seconds. F toggles fullscreen. M toggles mute."
+            ? "Space toggles playback. K pauses. J and L shuttle backward and forward up to 32 times speed. Hold K and tap J or L to step, or hold both for half speed. Comma and period, or the arrows, pause and step one frame; Shift and arrows step ten frames, using the detected frame rate or 30 frames per second. F toggles fullscreen. M toggles mute."
+            : "Space toggles playback. K pauses. Comma and period pause and step one frame. Arrows seek five seconds. F toggles fullscreen. M toggles mute."
         }
         onMouseMove={showControls}
         onMouseEnter={showControls}
