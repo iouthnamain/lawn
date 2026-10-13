@@ -36,6 +36,9 @@ interface CommentItemProps {
   isHighlighted?: boolean;
   isReply?: boolean;
   canResolve?: boolean;
+  // Root comment this reply is stored under. Replies to a reply stay on that
+  // same parent so the thread never nests a second level.
+  threadParentId?: Id<"comments">;
 }
 
 export function CommentItem({
@@ -44,8 +47,10 @@ export function CommentItem({
   isHighlighted = false,
   isReply = false,
   canResolve = false,
+  threadParentId,
 }: CommentItemProps) {
   const [isReplying, setIsReplying] = useState(false);
+  const replyParentId = threadParentId ?? comment.parentId ?? comment._id;
   const toggleResolved = useMutation(api.comments.toggleResolved);
   const deleteComment = useMutation(api.comments.remove);
 
@@ -103,12 +108,10 @@ export function CommentItem({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                {!isReply && (
-                  <DropdownMenuItem onClick={() => setIsReplying(true)}>
-                    <Reply className="mr-2 h-4 w-4" />
-                    Reply
-                  </DropdownMenuItem>
-                )}
+                <DropdownMenuItem onClick={() => setIsReplying(true)}>
+                  <Reply className="mr-2 h-4 w-4" />
+                  Reply
+                </DropdownMenuItem>
                 {canResolve && !isReply && (
                   <DropdownMenuItem onClick={handleToggleResolved}>
                     <Check className="mr-2 h-4 w-4" />
@@ -135,15 +138,15 @@ export function CommentItem({
       </div>
 
       {isReplying && (
-        <div className="mt-3 ml-10">
+        <div className={cn("mt-3", !isReply && "ml-10")}>
           <CommentInput
             videoId={comment.videoId}
             timestampSeconds={comment.timestampSeconds}
-            parentId={comment._id}
+            parentId={replyParentId}
             onSubmit={() => setIsReplying(false)}
             onCancel={() => setIsReplying(false)}
             autoFocus
-            placeholder="Write a reply..."
+            placeholder={`Reply to ${comment.userName}...`}
           />
         </div>
       )}

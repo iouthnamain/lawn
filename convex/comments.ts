@@ -1,39 +1,52 @@
 import { v } from "convex/values";
 import { query, MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation } from "./functions";
+import { Id } from "./_generated/dataModel";
 import { identityAvatarUrl, identityName, requireVideoAccess, requireUser } from "./auth";
+import { threadComments } from "./commentThreads";
 import { resolveActiveShareGrant } from "./shareAccess";
 import { resolvePublicVideo } from "./videos";
 
-function toThreadedComments<
-  T extends { _id: string; parentId?: string; timestampSeconds: number; _creationTime: number },
->(comments: T[]) {
-  const topLevel: T[] = [];
-  const repliesByParent = new Map<string, T[]>();
+async function requireTopLevelParent(
+  ctx: MutationCtx,
+  videoId: Id<"videos">,
+  parentId: Id<"comments"> | undefined,
+) {
+  if (!parentId) return;
 
-  for (const comment of comments) {
-    if (!comment.parentId) {
-      topLevel.push(comment);
-      continue;
-    }
+  const parent = await ctx.db.get(parentId);
+  if (!parent || parent.videoId !== videoId) {
+    throw new Error("Invalid parent comment");
+  }
+  if (parent.parentId) {
+    throw new Error("Replies can only be one level deep");
+  }
+}
 
-    const replies = repliesByParent.get(comment.parentId);
-    if (replies) {
-      replies.push(comment);
-    } else {
-      repliesByParent.set(comment.parentId, [comment]);
+async function deleteCommentAndReplies(ctx: MutationCtx, commentId: Id<"comments">) {
+  const pending: Array<Id<"comments">> = [commentId];
+  const ids: Array<Id<"comments">> = [];
+  const seen = new Set<string>();
+
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (!current || seen.has(current)) continue;
+    seen.add(current);
+    ids.push(current);
+
+    const replies = await ctx.db
+      .query("comments")
+      .withIndex("by_parent", (q) => q.eq("parentId", current))
+      .collect();
+
+    for (const reply of replies) {
+      pending.push(reply._id);
     }
   }
 
-  topLevel.sort((a, b) => a.timestampSeconds - b.timestampSeconds);
-  for (const replies of repliesByParent.values()) {
-    replies.sort((a, b) => a._creationTime - b._creationTime);
+  for (const id of ids) {
+    await ctx.db.delete(id);
   }
-
-  return topLevel.map((comment) => ({
-    ...comment,
-    replies: repliesByParent.get(comment._id) ?? [],
-  }));
 }
 
 function toPublicCommentPayload(comment: {
@@ -87,13 +100,7 @@ export const create = mutation({
   },
   handler: async (ctx, args) => {
     const { user } = await requireVideoAccess(ctx, args.videoId, "viewer");
-
-    if (args.parentId) {
-      const parent = await ctx.db.get(args.parentId);
-      if (!parent || parent.videoId !== args.videoId) {
-        throw new Error("Invalid parent comment");
-      }
-    }
+    await requireTopLevelParent(ctx, args.videoId, args.parentId);
 
     return await ctx.db.insert("comments", {
       videoId: args.videoId,
@@ -123,12 +130,7 @@ export const createForPublic = mutation({
       throw new Error("Video not found");
     }
 
-    if (args.parentId) {
-      const parent = await ctx.db.get(args.parentId);
-      if (!parent || parent.videoId !== video._id) {
-        throw new Error("Invalid parent comment");
-      }
-    }
+    await requireTopLevelParent(ctx, video._id, args.parentId);
 
     return await ctx.db.insert("comments", {
       videoId: video._id,
@@ -163,12 +165,7 @@ export const createForShareGrant = mutation({
       throw new Error("Video not found");
     }
 
-    if (args.parentId) {
-      const parent = await ctx.db.get(args.parentId);
-      if (!parent || parent.videoId !== video._id) {
-        throw new Error("Invalid parent comment");
-      }
-    }
+    await requireTopLevelParent(ctx, video._id, args.parentId);
 
     return await ctx.db.insert("comments", {
       videoId: video._id,
@@ -214,16 +211,7 @@ export const remove = mutation({
       await requireVideoAccess(ctx, comment.videoId, "admin");
     }
 
-    const replies = await ctx.db
-      .query("comments")
-      .withIndex("by_parent", (q) => q.eq("parentId", args.commentId))
-      .collect();
-
-    for (const reply of replies) {
-      await ctx.db.delete(reply._id);
-    }
-
-    await ctx.db.delete(args.commentId);
+    await deleteCommentAndReplies(ctx, args.commentId);
   },
 });
 
@@ -249,7 +237,7 @@ export const getThreaded = query({
       .withIndex("by_video", (q) => q.eq("videoId", args.videoId))
       .collect();
 
-    return toThreadedComments(comments);
+    return threadComments(comments);
   },
 });
 
@@ -266,7 +254,7 @@ export const getThreadedForPublic = query({
       .withIndex("by_video", (q) => q.eq("videoId", video._id))
       .collect();
 
-    return toThreadedComments(comments.map(toPublicCommentPayload));
+    return threadComments(comments.map(toPublicCommentPayload));
   },
 });
 
@@ -288,6 +276,6 @@ export const getThreadedForShareGrant = query({
       .withIndex("by_video", (q) => q.eq("videoId", video._id))
       .collect();
 
-    return toThreadedComments(comments.map(toPublicCommentPayload));
+    return threadComments(comments.map(toPublicCommentPayload));
   },
 });
