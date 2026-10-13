@@ -104,10 +104,13 @@ export function createShuttleController(
       rate = next;
       play();
     },
+    /** Pauses, steps whole frames, and returns the seek target. */
     step(frames: number, frameRate = DEFAULT_FRAME_RATE) {
       pause();
       const duration = Number.isFinite(video.duration) ? video.duration : undefined;
-      video.currentTime = steppedTime(video.currentTime, frames, frameRate, duration);
+      const time = steppedTime(video.currentTime, frames, frameRate, duration);
+      video.currentTime = time;
+      return time;
     },
     dispose() {
       generation++;

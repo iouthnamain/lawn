@@ -11,13 +11,7 @@ import {
   useImperativeHandle,
 } from "react";
 import { createShuttleController, bindPlaybackShortcuts, type PlaybackAction } from "./shuttle";
-import {
-  estimateFrameRate,
-  formatTimecode,
-  frameIndexAtTime,
-  resolveFrameRate,
-  steppedTime,
-} from "./frame";
+import { formatTimecode, frameRateFromPresentedFrames, resolveFrameRate } from "./frame";
 import type Hls from "hls.js";
 import {
   Play,
@@ -84,8 +78,6 @@ interface VideoPlayerProps {
   }>;
   selectedQualityId?: string;
   onSelectQuality?: (id: string) => void;
-  /** Known source frame rate for frame stepping; detected at runtime when omitted. */
-  frameRate?: number;
   /** Render controls below the video frame instead of overlaid. Ideal for mobile. */
   controlsBelow?: boolean;
   editorControls?: boolean;
@@ -146,7 +138,6 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(funct
     qualityOptionsConfig,
     selectedQualityId,
     onSelectQuality,
-    frameRate: frameRateProp,
     controlsBelow = false,
     editorControls = false,
     theaterMode = false,
@@ -213,34 +204,39 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(funct
     };
   }, []);
 
-  const frameRate = resolveFrameRate(frameRateProp ?? detectedFrameRate);
+  const frameRate = resolveFrameRate(detectedFrameRate);
+  // Shortcuts step through `useEffectEvent`, which React 19.2 freezes at mount
+  // in forwardRef components (facebook/react#34818), so steps read a ref.
+  const frameRateRef = useRef(frameRate);
+  useEffect(() => {
+    frameRateRef.current = frameRate;
+  }, [frameRate]);
 
-  // Detect the real frame rate from presented frames while playing; stepping
-  // falls back to 30 fps until (and unless) a rate is measured.
+  // Measure the frame rate from frames presented during playback at up to 1x,
+  // where every frame is shown; stepping uses 30 fps until a rate is measured.
   useEffect(() => {
     const video = videoRef.current;
     if (!video || typeof video.requestVideoFrameCallback !== "function") return;
     setDetectedFrameRate(null);
     let cancelled = false;
     let callbackId: number | null = null;
-    let previous: { mediaTime: number; presentedFrames: number } | null = null;
+    let highest = 0;
+    let recent: Array<{ mediaTime: number; presentedFrames: number }> = [];
     const onFrame: VideoFrameRequestCallback = (_now, metadata) => {
       if (cancelled) return;
       callbackId = video.requestVideoFrameCallback(onFrame);
-      const sample = {
-        mediaTime: metadata.mediaTime,
-        presentedFrames: metadata.presentedFrames,
-      };
-      // Wait for a stable window before trusting the estimate.
-      if (previous && sample.presentedFrames - previous.presentedFrames >= 10) {
-        const estimated = estimateFrameRate(previous, sample);
-        if (estimated !== null) {
-          previous = sample;
-          setDetectedFrameRate((current) => (current === estimated ? current : estimated));
-          return;
-        }
+      // Paused seeks, shuttling and fast playback present frames unevenly.
+      if (video.paused || video.playbackRate > 1) {
+        recent = [];
+        return;
       }
-      if (!previous) previous = sample;
+      recent = [...recent.slice(-2), metadata];
+      if (recent.length < 3) return;
+      const rate = frameRateFromPresentedFrames(recent[0], recent[1], recent[2]);
+      if (rate !== null && rate > highest) {
+        highest = rate;
+        setDetectedFrameRate(rate);
+      }
     };
     callbackId = video.requestVideoFrameCallback(onFrame);
     return () => {
@@ -320,18 +316,17 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(funct
     [applyTime, showControls],
   );
 
-  // Pause-and-step: lands on an exact frame boundary and reports that exact
-  // time, so a comment written while stepped is stamped with the stepped frame.
+  // Reports the stepped time straight away, so a comment written while stepped
+  // is stamped with the frame on screen.
   const handleStepFrames = useCallback(
     (deltaFrames: number) => {
-      const video = videoRef.current;
-      if (!video) return;
-      shuttleRef.current?.pause();
-      const videoDuration = Number.isFinite(video.duration) ? video.duration : undefined;
-      applyTime(steppedTime(video.currentTime, deltaFrames, frameRate, videoDuration));
+      const time = shuttleRef.current?.step(deltaFrames, frameRateRef.current);
+      if (time === undefined) return;
+      setCurrentTime(time);
+      onTimeUpdate?.(time);
       showControls();
     },
-    [applyTime, frameRate, showControls],
+    [onTimeUpdate, showControls],
   );
 
   const togglePlay = useCallback(() => {
@@ -1017,6 +1012,10 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(funct
   }, [qualityMenuOpen]);
 
   const displayTime = isScrubbing ? scrubTime : currentTime;
+  const timeLabelWidth = Math.max(
+    formatTimecode(0, frameRate).length,
+    formatDuration(duration || 0).length * 2 + " / ".length,
+  );
   const playedPercent = duration > 0 ? clamp(displayTime / duration, 0, 1) : 0;
   const canDownload = allowDownload && (Boolean(downloadUrl) || Boolean(onRequestDownload));
   const isHls = isHlsSource(src);
@@ -1178,20 +1177,16 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(funct
         </div>
 
         <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-white/90">
-          {isPlaying ? (
-            <span className="inline-block min-w-[19ch] text-center font-mono">
-              {formatDuration(displayTime)} / {formatDuration(duration || 0)}
-            </span>
-          ) : (
-            <span
-              className="inline-block min-w-[19ch] text-center font-mono"
-              aria-label={`Paused at timecode ${formatTimecode(displayTime, frameRate)}, frame ${frameIndexAtTime(displayTime, frameRate)} of ${formatDuration(duration || 0)}`}
-              title={`Timecode ${formatTimecode(displayTime, frameRate)} at ${frameRate} fps. Step with , and .`}
-            >
-              {formatTimecode(displayTime, frameRate)} · Frame{" "}
-              {frameIndexAtTime(displayTime, frameRate)}
-            </span>
-          )}
+          {/* Sized for both labels so pausing never resizes the control row. */}
+          <span
+            className="inline-block text-center font-mono whitespace-nowrap"
+            style={{ minWidth: `${timeLabelWidth}ch` }}
+            title={isPlaying ? undefined : `${frameRate} fps`}
+          >
+            {isPlaying
+              ? `${formatDuration(displayTime)} / ${formatDuration(duration || 0)}`
+              : formatTimecode(displayTime, frameRate)}
+          </span>
         </div>
 
         <div className="ml-auto flex items-center gap-2">
@@ -1382,7 +1377,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(funct
         aria-label="Video player"
         aria-description={
           editorControls
-            ? "Space toggles playback. K pauses. J and L shuttle backward and forward up to 32 times speed. Hold K and tap J or L to step, or hold both for half speed. Comma and period, or the arrows, pause and step one frame; Shift and arrows step ten frames, using the detected frame rate or 30 frames per second. F toggles fullscreen. M toggles mute."
+            ? "Space toggles playback. K pauses. J and L shuttle backward and forward up to 32 times speed. Hold K and tap J or L to step, or hold both for half speed. Comma and period, or the arrows, pause and step one frame; Shift and arrows step ten frames, at the frame rate measured during playback or 30 frames per second until then. F toggles fullscreen. M toggles mute."
             : "Space toggles playback. K pauses. Comma and period pause and step one frame. Arrows seek five seconds. F toggles fullscreen. M toggles mute."
         }
         onMouseMove={showControls}
