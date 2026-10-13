@@ -1181,7 +1181,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(funct
           <span
             className="inline-block text-center font-mono whitespace-nowrap"
             style={{ minWidth: `${timeLabelWidth}ch` }}
-            title={isPlaying ? undefined : `${frameRate} fps`}
+            title={isPlaying ? undefined : `${Math.round(frameRate * 1000) / 1000} fps`}
           >
             {isPlaying
               ? `${formatDuration(displayTime)} / ${formatDuration(duration || 0)}`

@@ -22,11 +22,14 @@ test("resolveFrameRate falls back to 30 fps for unknown or implausible values", 
 });
 
 test("resolveFrameRate keeps known rates and snaps near-miss measurements to them", () => {
-  for (const rate of [23.976, 24, 25, 29.97, 30, 48, 50, 59.94, 60]) {
+  for (const rate of [24, 25, 30, 48, 50, 60]) {
     assert.equal(resolveFrameRate(rate), rate);
   }
-  assert.equal(resolveFrameRate(30000 / 1001), 29.97);
-  assert.equal(resolveFrameRate(23.98), 23.976);
+  // NTSC rates snap to their exact ratios, whether written as decimals or measured.
+  assert.equal(resolveFrameRate(23.976), 24000 / 1001);
+  assert.equal(resolveFrameRate(23.98), 24000 / 1001);
+  assert.equal(resolveFrameRate(29.97), 30000 / 1001);
+  assert.equal(resolveFrameRate(59.94), 60000 / 1001);
   // A plausible but non-standard rate is kept as-is rather than forced to a neighbour.
   assert.equal(resolveFrameRate(90), 90);
 });
@@ -37,6 +40,8 @@ test("frameIndexAtTime counts the frame shown at a time", () => {
   assert.equal(frameIndexAtTime(1, 30), 30);
   assert.equal(frameIndexAtTime(10.05, 30), 301);
   assert.equal(frameIndexAtTime(1234 / 23.976, 23.976), 1234);
+  // Exact NTSC ratios keep long recordings on the right frame.
+  assert.equal(frameIndexAtTime(40000, 29.97), 1198801);
 });
 
 test("steppedTime targets the middle of the neighbouring frame", () => {
@@ -110,7 +115,7 @@ test("frameRateFromPresentedFrames reads the rate from evenly spaced frames", ()
   // 30000/1001 timestamps rounded to microseconds.
   assert.equal(
     frameRateFromPresentedFrames(presented(7, 1), presented(8, 1.033366), presented(9, 1.066733)),
-    29.97,
+    30000 / 1001,
   );
   assert.equal(
     frameRateFromPresentedFrames(presented(1, 2), presented(2, 2.02), presented(3, 2.04)),

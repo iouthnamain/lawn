@@ -2,7 +2,19 @@
 
 export const DEFAULT_FRAME_RATE = 30;
 
-const COMMON_FRAME_RATES = [23.976, 24, 25, 29.97, 30, 48, 50, 59.94, 60, 120] as const;
+/** NTSC rates are exact ratios; 29.97 would drift a frame behind on long recordings. */
+const COMMON_FRAME_RATES = [
+  24000 / 1001,
+  24,
+  25,
+  30000 / 1001,
+  30,
+  48,
+  50,
+  60000 / 1001,
+  60,
+  120,
+] as const;
 const MIN_PLAUSIBLE_FRAME_RATE = 10;
 const MAX_PLAUSIBLE_FRAME_RATE = 240;
 /** Absorbs float error from `time * fps` round-trips on exact frame boundaries. */
