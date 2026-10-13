@@ -1519,6 +1519,7 @@ export default function VideoPage() {
               onTimestampClick={handleTimestampClick}
               highlightedCommentId={highlightedCommentId}
               canResolve={canEdit}
+              canTag={canEdit}
             />
           </div>
           {canComment && (
@@ -1577,6 +1578,7 @@ export default function VideoPage() {
               }}
               highlightedCommentId={highlightedCommentId}
               canResolve={canEdit}
+              canTag={canEdit}
             />
           </div>
           {canComment && (
