@@ -7,20 +7,24 @@ import { threadComments } from "./commentThreads";
 import { resolveActiveShareGrant } from "./shareAccess";
 import { resolvePublicVideo } from "./videos";
 
-async function requireTopLevelParent(
+// Threads are one level deep: a reply to a reply is stored on that reply's
+// parent. A reply whose parent row is gone is shown as its own thread (see
+// threadComments), so it becomes the root instead.
+async function resolveReplyParent(
   ctx: MutationCtx,
   videoId: Id<"videos">,
   parentId: Id<"comments"> | undefined,
 ) {
-  if (!parentId) return;
+  if (!parentId) return undefined;
 
   const parent = await ctx.db.get(parentId);
   if (!parent || parent.videoId !== videoId) {
     throw new Error("Invalid parent comment");
   }
-  if (parent.parentId) {
-    throw new Error("Replies can only be one level deep");
-  }
+  if (!parent.parentId) return parent._id;
+
+  const root = await ctx.db.get(parent.parentId);
+  return root && root.videoId === videoId ? root._id : parent._id;
 }
 
 async function deleteCommentAndReplies(ctx: MutationCtx, commentId: Id<"comments">) {
@@ -100,7 +104,7 @@ export const create = mutation({
   },
   handler: async (ctx, args) => {
     const { user } = await requireVideoAccess(ctx, args.videoId, "viewer");
-    await requireTopLevelParent(ctx, args.videoId, args.parentId);
+    const parentId = await resolveReplyParent(ctx, args.videoId, args.parentId);
 
     return await ctx.db.insert("comments", {
       videoId: args.videoId,
@@ -109,7 +113,7 @@ export const create = mutation({
       userAvatarUrl: identityAvatarUrl(user),
       text: args.text,
       timestampSeconds: args.timestampSeconds,
-      parentId: args.parentId,
+      parentId,
       resolved: false,
     });
   },
@@ -130,7 +134,7 @@ export const createForPublic = mutation({
       throw new Error("Video not found");
     }
 
-    await requireTopLevelParent(ctx, video._id, args.parentId);
+    const parentId = await resolveReplyParent(ctx, video._id, args.parentId);
 
     return await ctx.db.insert("comments", {
       videoId: video._id,
@@ -139,7 +143,7 @@ export const createForPublic = mutation({
       userAvatarUrl: identityAvatarUrl(user),
       text: args.text,
       timestampSeconds: args.timestampSeconds,
-      parentId: args.parentId,
+      parentId,
       resolved: false,
     });
   },
@@ -165,7 +169,7 @@ export const createForShareGrant = mutation({
       throw new Error("Video not found");
     }
 
-    await requireTopLevelParent(ctx, video._id, args.parentId);
+    const parentId = await resolveReplyParent(ctx, video._id, args.parentId);
 
     return await ctx.db.insert("comments", {
       videoId: video._id,
@@ -174,7 +178,7 @@ export const createForShareGrant = mutation({
       userAvatarUrl: identityAvatarUrl(user),
       text: args.text,
       timestampSeconds: args.timestampSeconds,
-      parentId: args.parentId,
+      parentId,
       resolved: false,
     });
   },

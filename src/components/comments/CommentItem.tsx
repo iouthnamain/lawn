@@ -36,9 +36,6 @@ interface CommentItemProps {
   isHighlighted?: boolean;
   isReply?: boolean;
   canResolve?: boolean;
-  // Root comment this reply is stored under. Replies to a reply stay on that
-  // same parent so the thread never nests a second level.
-  threadParentId?: Id<"comments">;
 }
 
 export function CommentItem({
@@ -47,10 +44,8 @@ export function CommentItem({
   isHighlighted = false,
   isReply = false,
   canResolve = false,
-  threadParentId,
 }: CommentItemProps) {
   const [isReplying, setIsReplying] = useState(false);
-  const replyParentId = threadParentId ?? comment.parentId ?? comment._id;
   const toggleResolved = useMutation(api.comments.toggleResolved);
   const deleteComment = useMutation(api.comments.remove);
 
@@ -142,7 +137,7 @@ export function CommentItem({
           <CommentInput
             videoId={comment.videoId}
             timestampSeconds={comment.timestampSeconds}
-            parentId={replyParentId}
+            parentId={comment._id}
             onSubmit={() => setIsReplying(false)}
             onCancel={() => setIsReplying(false)}
             autoFocus

@@ -5,8 +5,6 @@ import { threadComments } from "@convex/commentThreads";
 import { makeRouteQuerySpec, prewarmSpecs } from "@/lib/convexRouteData";
 import { useMemo } from "react";
 
-export { threadComments };
-
 export function getVideoEssentialSpecs(params: {
   teamSlug: string;
   projectId: Id<"projects">;

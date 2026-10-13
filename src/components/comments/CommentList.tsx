@@ -69,7 +69,6 @@ export function CommentList(props: CommentListProps) {
                     onTimestampClick={onTimestampClick}
                     isHighlighted={highlightedCommentId === reply._id}
                     isReply
-                    threadParentId={comment._id}
                     canResolve={canResolve}
                   />
                 ))}

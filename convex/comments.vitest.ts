@@ -116,7 +116,7 @@ test("replies nest one level under the parent on review, watch, and share", asyn
   expect(share[0]).not.toHaveProperty("userClerkId");
 });
 
-test("a reply cannot target another reply", async () => {
+test("a reply to a reply is stored on the thread root", async () => {
   const { member, guest, videoId, otherVideoId } = await seedReviewVideo();
 
   const rootId = await member.mutation(api.comments.create, {
@@ -136,32 +136,33 @@ test("a reply cannot target another reply", async () => {
     timestampSeconds: 1,
   });
 
-  await expect(
-    member.mutation(api.comments.create, {
-      videoId,
-      text: "Too deep",
-      timestampSeconds: 1,
-      parentId: replyId,
-    }),
-  ).rejects.toThrow("Replies can only be one level deep");
+  await member.mutation(api.comments.create, {
+    videoId,
+    text: "From review",
+    timestampSeconds: 1,
+    parentId: replyId,
+  });
+  await guest.mutation(api.comments.createForPublic, {
+    publicId: "cut",
+    text: "From watch",
+    timestampSeconds: 1,
+    parentId: replyId,
+  });
+  await guest.mutation(api.comments.createForShareGrant, {
+    grantToken: "grant-token",
+    text: "From share",
+    timestampSeconds: 1,
+    parentId: replyId,
+  });
 
-  await expect(
-    guest.mutation(api.comments.createForPublic, {
-      publicId: "cut",
-      text: "Too deep",
-      timestampSeconds: 1,
-      parentId: replyId,
-    }),
-  ).rejects.toThrow("Replies can only be one level deep");
-
-  await expect(
-    guest.mutation(api.comments.createForShareGrant, {
-      grantToken: "grant-token",
-      text: "Too deep",
-      timestampSeconds: 1,
-      parentId: replyId,
-    }),
-  ).rejects.toThrow("Replies can only be one level deep");
+  const threads = await member.query(api.comments.getThreaded, { videoId });
+  expect(threads).toHaveLength(1);
+  expect(threads[0]?.replies.map((reply) => [reply.text, reply.parentId])).toEqual([
+    ["Reply", rootId],
+    ["From review", rootId],
+    ["From watch", rootId],
+    ["From share", rootId],
+  ]);
 
   await expect(
     member.mutation(api.comments.create, {
@@ -171,6 +172,52 @@ test("a reply cannot target another reply", async () => {
       parentId: otherRootId,
     }),
   ).rejects.toThrow("Invalid parent comment");
+});
+
+test("a comment whose parent is gone can still take replies", async () => {
+  const { t, member, videoId } = await seedReviewVideo();
+
+  const orphanId = await t.run(async (ctx) => {
+    const goneId = await ctx.db.insert("comments", {
+      videoId,
+      userClerkId: "member",
+      userName: "Member",
+      text: "Gone",
+      timestampSeconds: 2,
+      resolved: false,
+    });
+    const orphanId = await ctx.db.insert("comments", {
+      videoId,
+      userClerkId: "member",
+      userName: "Member",
+      text: "Orphan",
+      timestampSeconds: 2,
+      parentId: goneId,
+      resolved: false,
+    });
+    await ctx.db.delete(goneId);
+    return orphanId;
+  });
+
+  const replyId = await member.mutation(api.comments.create, {
+    videoId,
+    text: "Reply to orphan",
+    timestampSeconds: 2,
+    parentId: orphanId,
+  });
+  await member.mutation(api.comments.create, {
+    videoId,
+    text: "Reply to that reply",
+    timestampSeconds: 2,
+    parentId: replyId,
+  });
+
+  const threads = await member.query(api.comments.getThreaded, { videoId });
+  expect(threads.map((thread) => thread._id)).toEqual([orphanId]);
+  expect(threads[0]?.replies.map((reply) => [reply.text, reply.parentId])).toEqual([
+    ["Reply to orphan", orphanId],
+    ["Reply to that reply", orphanId],
+  ]);
 });
 
 test("deleting a comment deletes replies nested under it", async () => {
