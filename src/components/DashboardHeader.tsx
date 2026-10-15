@@ -1,5 +1,5 @@
 import { Link, useParams } from "@tanstack/react-router";
-import { UserButton } from "@clerk/tanstack-react-start";
+import { UserMenu } from "@/lib/auth";
 import { Moon, Search, Sun } from "lucide-react";
 import { useTheme } from "@/components/theme/ThemeToggle";
 import React from "react";
@@ -190,25 +190,7 @@ export function DashboardHeader({
       <div className="col-start-2 row-start-1 flex h-8 items-center gap-4 border-l-2 border-[#1a1a1a]/10 pl-4 lg:col-start-3">
         <SearchButton />
         <ThemeToggleButton />
-        <UserButton
-          appearance={{
-            variables: {
-              colorText: "#1a1a1a",
-              colorTextSecondary: "#888",
-              colorBackground: "#f0f0e8",
-            },
-            elements: {
-              avatarBox: "w-8 h-8 rounded-none border-2 border-[#1a1a1a]",
-              userButtonPopoverCard:
-                "bg-[#f0f0e8] border-2 border-[#1a1a1a] rounded-none shadow-[8px_8px_0px_0px_var(--shadow-color)]",
-              userButtonPopoverActionButton: "!text-[#1a1a1a] hover:!bg-[#e8e8e0] rounded-none",
-              userButtonPopoverActionButtonText:
-                "!text-[#1a1a1a] hover:!text-[#1a1a1a] font-mono font-bold",
-              userButtonPopoverActionButtonIcon: "!text-[#1a1a1a] hover:!text-[#1a1a1a]",
-              userButtonPopoverFooter: "hidden",
-            },
-          }}
-        />
+        <UserMenu />
       </div>
 
       {/* Children — own row below lg so the breadcrumb keeps its width, middle column on desktop */}

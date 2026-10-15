@@ -1,0 +1,19 @@
+[Unit]
+Description=Lawn local backend and storage
+Requires=docker.service run-media-ina-labb\x2ddata-apps-lawn\x2dstate.mount
+Wants=lawn-media.service lawn-web.service
+After=docker.service run-media-ina-labb\x2ddata-apps-lawn\x2dstate.mount network-online.target
+RequiresMountsFor=/run/media/ina/labb-data/apps
+
+[Service]
+Type=simple
+WorkingDirectory=/run/media/ina/labb-data/apps/lawn
+ExecStart=/run/media/ina/labb-data/apps/lawn/deploy/stack.sh up --abort-on-container-exit --no-color
+ExecStop=/run/media/ina/labb-data/apps/lawn/deploy/stack.sh down
+Restart=always
+RestartSec=5
+TimeoutStartSec=180
+TimeoutStopSec=90
+
+[Install]
+WantedBy=multi-user.target

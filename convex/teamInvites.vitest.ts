@@ -1,25 +1,24 @@
 /// <reference types="vite/client" />
 
-import { convexTest } from "convex-test";
 import { expect, test } from "vitest";
 import { api } from "./_generated/api";
-import schema from "./schema";
+import { createTestBackend } from "./test.setup";
 
 const modules = import.meta.glob("./**/*.ts");
 
 test("team owners can invite new members and identify existing members", async () => {
-  const t = convexTest(schema, modules);
+  const t = await createTestBackend(modules);
   const teamId = await t.run(async (ctx) => {
     const teamId = await ctx.db.insert("teams", {
       name: "Garden",
       slug: "garden",
-      ownerClerkId: "owner",
+      ownerClerkId: t.users.owner.id,
       plan: "basic",
     });
 
     await ctx.db.insert("teamMembers", {
       teamId,
-      userClerkId: "owner",
+      userClerkId: t.users.owner.id,
       userEmail: "owner@example.com",
       userName: "Owner",
       role: "owner",
@@ -28,11 +27,7 @@ test("team owners can invite new members and identify existing members", async (
     return teamId;
   });
 
-  const owner = t.withIdentity({
-    subject: "owner",
-    email: "owner@example.com",
-    name: "Owner",
-  });
+  const owner = t.withIdentity(t.users.owner.identity);
 
   const token = await owner.mutation(api.teams.inviteMember, {
     teamId,

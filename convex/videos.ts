@@ -9,6 +9,7 @@ import { generateUniqueToken } from "./security";
 import { resolveActiveShareGrant } from "./shareAccess";
 import { assertTeamCanStoreBytes, assertTeamHasActiveSubscription } from "./billingHelpers";
 import { assertVideoFileSizeAllowed } from "./uploadLimits";
+import type { VideoFilesToDelete } from "./videoDeletion";
 
 const workflowStatusValidator = v.union(
   v.literal("review"),
@@ -222,6 +223,22 @@ export async function deleteShareAccessGrantsForLink(
   return grants.length;
 }
 
+function videoFilesToDelete(
+  video: Pick<Doc<"videos">, "muxAssetId" | "s3Key" | "s3MultipartUploadId">,
+): VideoFilesToDelete {
+  return {
+    assetId:
+      video.muxAssetId && /^[a-f0-9]{32}$/.test(video.muxAssetId) ? video.muxAssetId : undefined,
+    s3Key: video.s3Key,
+    multipartUploadId: video.s3MultipartUploadId,
+    recheckOriginal: video.s3Key && !video.s3MultipartUploadId ? true : undefined,
+  };
+}
+async function scheduleLocalMediaDeletion(ctx: MutationCtx, files: VideoFilesToDelete) {
+  if (files.assetId || files.s3Key)
+    await ctx.scheduler.runAfter(0, internal.videoActions.deleteLocalMediaAsset, files);
+}
+
 /**
  * Deletes a video and everything that depends on it (comments, share links and
  * their access grants). Returns the number of documents deleted so callers that
@@ -258,6 +275,7 @@ export async function deleteVideoAndDependents(
 
   await rewireStackBeforeDelete(ctx, video);
   await ctx.db.delete(videoId);
+  await scheduleLocalMediaDeletion(ctx, videoFilesToDelete(video));
   deleted++;
 
   return deleted;
@@ -317,6 +335,7 @@ export async function deleteVideoAndDependentsBatch(
 
   await rewireStackBeforeDelete(ctx, video);
   await ctx.db.delete(videoId);
+  await scheduleLocalMediaDeletion(ctx, videoFilesToDelete(video));
   return { deleted: deleted + 1, done: true };
 }
 
@@ -391,6 +410,7 @@ async function deleteVersionAndRenumberStack(ctx: MutationCtx, video: Doc<"video
   }
 
   await ctx.db.delete(video._id);
+  await scheduleLocalMediaDeletion(ctx, videoFilesToDelete(video));
   return replacementVideoId;
 }
 
@@ -980,8 +1000,16 @@ async function loadStackForDelete(ctx: MutationCtx, videoId: Id<"videos">) {
 
 async function deleteStackVersions(ctx: MutationCtx, versionIds: Id<"videos">[]) {
   for (const versionId of versionIds) {
+    const video = await ctx.db.get(versionId);
     await ctx.db.delete(versionId);
-    await ctx.scheduler.runAfter(0, internal.videos.continueVideoDelete, { videoId: versionId });
+    // Carry media cleanup into the continuation to retain one scheduled job per version.
+    await ctx.scheduler.runAfter(0, internal.videos.continueVideoDelete, {
+      videoId: versionId,
+      muxAssetId: video?.muxAssetId,
+      s3Key: video?.s3Key,
+      s3MultipartUploadId: video?.s3MultipartUploadId,
+      recheckOriginal: video?.s3Key && !video.s3MultipartUploadId ? true : undefined,
+    });
   }
 }
 
@@ -1131,8 +1159,18 @@ export const removeStacks = mutation({
 });
 
 export const continueVideoDelete = internalMutation({
-  args: { videoId: v.id("videos") },
+  args: {
+    videoId: v.id("videos"),
+    muxAssetId: v.optional(v.string()),
+    s3Key: v.optional(v.string()),
+    s3MultipartUploadId: v.optional(v.string()),
+    recheckOriginal: v.optional(v.boolean()),
+  },
   handler: async (ctx, args) => {
+    await scheduleLocalMediaDeletion(ctx, {
+      ...videoFilesToDelete(args),
+      recheckOriginal: args.recheckOriginal,
+    });
     const existingVideo = await ctx.db.get(args.videoId);
     if (existingVideo) {
       const legacyResult = await deleteVideoAndDependentsBatch(
@@ -1141,7 +1179,9 @@ export const continueVideoDelete = internalMutation({
         VIDEO_DEPENDENT_DELETE_BATCH_DOCS,
       );
       if (!legacyResult.done) {
-        await ctx.scheduler.runAfter(0, internal.videos.continueVideoDelete, args);
+        await ctx.scheduler.runAfter(0, internal.videos.continueVideoDelete, {
+          videoId: args.videoId,
+        });
       }
       return;
     }
@@ -1152,7 +1192,9 @@ export const continueVideoDelete = internalMutation({
       VIDEO_DEPENDENT_DELETE_BATCH_DOCS,
     );
     if (!result.done) {
-      await ctx.scheduler.runAfter(0, internal.videos.continueVideoDelete, args);
+      await ctx.scheduler.runAfter(0, internal.videos.continueVideoDelete, {
+        videoId: args.videoId,
+      });
     }
   },
 });

@@ -1,51 +1,104 @@
-import { SignIn } from "@clerk/tanstack-react-start";
-import { useRouterState } from "@tanstack/react-router";
+import { useAuthActions } from "@convex-dev/auth/react";
+import { Link, useRouterState } from "@tanstack/react-router";
+import { useEffect, useState, type FormEvent } from "react";
+import { useUser } from "@/lib/auth";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 export default function SignInPage() {
-  const search = useRouterState({
-    select: (state) => state.location.searchStr,
-  });
-  const redirectUrl = new URLSearchParams(search).get("redirect_url");
+  const { signIn } = useAuthActions();
+  const { user } = useUser();
+  const search = useRouterState({ select: (state) => state.location.searchStr });
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function redirectAfterSignIn() {
+    const requested = new URLSearchParams(search).get("redirect_url");
+    const fallback = "/dashboard";
+    try {
+      const target = new URL(requested || fallback, window.location.origin);
+      const safe =
+        target.origin === window.location.origin && !target.pathname.startsWith("/sign-");
+      window.location.assign(safe ? `${target.pathname}${target.search}${target.hash}` : fallback);
+    } catch {
+      window.location.assign(fallback);
+    }
+  }
+
+  useEffect(() => {
+    if (user) redirectAfterSignIn();
+  }, [user, search]);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError(null);
+    setIsSubmitting(true);
+    try {
+      await signIn("password", { email: email.trim().toLowerCase(), password, flow: "signIn" });
+      redirectAfterSignIn();
+    } catch {
+      setError("Could not sign in. Check your email and password, then try again.");
+      setIsSubmitting(false);
+    }
+  }
 
   return (
-    <SignIn
-      fallbackRedirectUrl={redirectUrl || "/dashboard"}
-      appearance={{
-        elements: {
-          formButtonPrimary:
-            "bg-[#1a1a1a] hover:bg-[#2d5a2d] text-[#f0f0e8] border-2 border-[#1a1a1a] rounded-none shadow-[4px_4px_0px_0px_var(--shadow-color)] hover:translate-y-[2px] hover:translate-x-[2px] hover:shadow-[2px_2px_0px_0px_var(--shadow-color)] font-mono font-bold uppercase text-sm transition-all",
-          card: "bg-[#f0f0e8] border-2 border-[#1a1a1a] rounded-none shadow-[8px_8px_0px_0px_var(--shadow-color)]",
-          headerTitle: "text-[#1a1a1a] font-black uppercase tracking-tighter text-2xl font-mono",
-          headerSubtitle: "text-[#888] font-mono",
-          socialButtonsBlockButton:
-            "border-2 border-[#1a1a1a] bg-transparent hover:bg-[#1a1a1a] text-[#1a1a1a] hover:text-[#f0f0e8] rounded-none transition-all hover:translate-y-[2px] hover:translate-x-[2px] hover:shadow-[2px_2px_0px_0px_var(--shadow-color)] font-mono",
-          socialButtonsBlockButtonText: "!text-current font-bold uppercase font-mono",
-          socialButtonsBlockButtonArrow: "text-current",
-          formFieldLabel: "text-[#1a1a1a] font-bold uppercase font-mono",
-          formFieldInput:
-            "bg-transparent border-2 border-[#1a1a1a] text-[#1a1a1a] focus:border-[#2d5a2d] focus:shadow-[4px_4px_0px_0px_var(--shadow-accent)] focus:ring-0 rounded-none font-mono",
-          footerActionLink: "text-[#2d5a2d] hover:text-[#1a1a1a] font-bold font-mono",
-          footerActionText: "text-[#888] font-mono",
-          dividerLine: "bg-[#1a1a1a]",
-          dividerText: "text-[#888] font-mono font-bold",
-          identityPreviewText: "text-[#1a1a1a] font-mono",
-          identityPreviewEditButton: "text-[#2d5a2d] hover:text-[#1a1a1a]",
-          formFieldInputShowPasswordButton: "text-[#888] hover:text-[#1a1a1a]",
-          footer: "hidden",
-          internal: "text-[#1a1a1a]",
-        },
-        variables: {
-          colorPrimary: "#2d5a2d",
-          colorBackground: "#f0f0e8",
-          colorInputBackground: "transparent",
-          colorInputText: "#1a1a1a",
-          colorText: "#1a1a1a",
-          colorTextSecondary: "#888888",
-          colorTextOnPrimaryBackground: "#f0f0e8",
-          colorNeutral: "#1a1a1a",
-          borderRadius: "0rem",
-        },
-      }}
-    />
+    <form
+      onSubmit={handleSubmit}
+      className="space-y-5 border-2 border-[#1a1a1a] bg-[#f0f0e8] p-6 shadow-[8px_8px_0px_0px_var(--shadow-color)]"
+    >
+      <div>
+        <h1 className="font-mono text-2xl font-black tracking-tight text-[#1a1a1a] uppercase">
+          Sign in
+        </h1>
+        <p className="mt-2 text-sm text-[#555]">Use your local Lawn account.</p>
+      </div>
+      <div className="space-y-2">
+        <label htmlFor="email" className="font-mono text-sm font-bold text-[#1a1a1a]">
+          Email
+        </label>
+        <Input
+          id="email"
+          name="email"
+          type="email"
+          autoComplete="username"
+          required
+          value={email}
+          onChange={(event) => setEmail(event.target.value)}
+          disabled={isSubmitting}
+        />
+      </div>
+      <div className="space-y-2">
+        <label htmlFor="password" className="font-mono text-sm font-bold text-[#1a1a1a]">
+          Password
+        </label>
+        <Input
+          id="password"
+          name="password"
+          type="password"
+          autoComplete="current-password"
+          required
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+          disabled={isSubmitting}
+        />
+      </div>
+      {error && (
+        <p role="alert" className="text-sm text-red-700">
+          {error}
+        </p>
+      )}
+      <Button type="submit" className="w-full" disabled={isSubmitting}>
+        {isSubmitting ? "Signing in..." : "Sign in"}
+      </Button>
+      <p className="text-sm text-[#555]">
+        Need an account or password reset? Contact your Lawn operator.{" "}
+        <Link to="/sign-up" className="font-bold text-[#2d5a2d] underline">
+          Account access
+        </Link>
+      </p>
+    </form>
   );
 }

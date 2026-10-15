@@ -32,29 +32,9 @@ We want to make things convenient, but we don't want to be insecure. Be thoughtf
 
 ## Local development
 
-`bun run dev` runs the app against a **local Convex deployment** that is unique
-to this git worktree (anonymous mode, data in `./.convex`, no login, offline).
-This lets multiple Conductor workspaces run in parallel without sharing one
-cloud dev backend. The script (`scripts/dev.sh`) provisions the deployment on
-first run via `scripts/convex-local-setup.sh`, which configures it and seeds its
-env vars from `.env.local` (plus `CLERK_JWT_ISSUER_DOMAIN`, derived from the
-Clerk publishable key).
-
-- `bun run dev` — Vite + local Convex (the default).
-- `bun run dev:cloud` — Vite + the shared cloud dev deployment (old behavior).
-- `bun run convex:local` — re-provision the local deployment (or delete
-  `.convex/.seeded` and re-run `dev`).
-
-Some deployment secrets live only in the Convex cloud dashboard and are **not**
-in `.env.local`, so those features need extra setup to work locally — add the
-values to `.env.convex.local` (git-ignored, auto-seeded):
-
-- `RAILWAY_*` — S3-compatible storage (video file uploads)
-- `MUX_*` — Mux encoding / playback
-
-They are read at runtime, so the function push still succeeds without them.
-External webhooks (Stripe, Chunkify, Clerk) can't reach a `127.0.0.1` backend
-without a tunnel, so use `dev:cloud` (or a tunnel) when testing webhook flows.
+This fork uses the self-hosted stack. Read `docs/setup.md` and `docs/deployment.md`.
+`bun run dev` uses the configured local Convex backend and Vite port 5298.
+Production uses systemd and port 5296. Keep deployment credentials in ignored local files.
 
 <!-- convex-ai-start -->
 

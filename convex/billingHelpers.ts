@@ -1,115 +1,36 @@
 import { ConvexError } from "convex/values";
-import { components } from "./_generated/api";
-import { Id } from "./_generated/dataModel";
-import { MutationCtx, QueryCtx } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 
-export type TeamPlan = "basic" | "pro";
-
-const GIBIBYTE = 1024 ** 3;
-
-export const TEAM_PLAN_MONTHLY_PRICE_USD: Record<TeamPlan, number> = {
-  basic: 5,
-  pro: 25,
-};
-
-export const TEAM_PLAN_STORAGE_LIMIT_BYTES: Record<TeamPlan, number> = {
-  basic: 100 * GIBIBYTE,
-  pro: 1024 * GIBIBYTE,
-};
-
-function hasText(value: string | undefined | null): value is string {
-  return typeof value === "string" && value.trim().length > 0;
+const storageBudget = Number(process.env.LAWN_STORAGE_LIMIT_GIB ?? "400") * 1024 ** 3;
+if (!Number.isFinite(storageBudget) || storageBudget <= 0) {
+  throw new Error("LAWN_STORAGE_LIMIT_GIB must be a positive number");
 }
-
-export function normalizeStoredTeamPlan(plan: string): TeamPlan {
-  if (plan === "pro" || plan === "team") return "pro";
-  return "basic";
-}
-
-export function resolvePlanFromStripePriceId(
-  stripePriceId: string | undefined | null,
-): TeamPlan | null {
-  if (!hasText(stripePriceId)) return null;
-
-  const basicPriceId = process.env.STRIPE_PRICE_BASIC_MONTHLY;
-  const proPriceId = process.env.STRIPE_PRICE_PRO_MONTHLY;
-
-  if (hasText(basicPriceId) && stripePriceId === basicPriceId) return "basic";
-  if (hasText(proPriceId) && stripePriceId === proPriceId) return "pro";
-  return null;
-}
-
-export function getStripePriceIdForPlan(plan: TeamPlan): string {
-  const variableName = plan === "basic" ? "STRIPE_PRICE_BASIC_MONTHLY" : "STRIPE_PRICE_PRO_MONTHLY";
-  const value = process.env[variableName];
-  if (!hasText(value)) {
-    throw new Error(`${variableName} is not configured`);
-  }
-  return value;
-}
-
-export function hasActiveTeamSubscriptionStatus(status: string | undefined | null): boolean {
-  return status === "active" || status === "trialing" || status === "past_due";
-}
-
+export const TEAM_PLAN_STORAGE_LIMIT_BYTES = { basic: storageBudget, pro: storageBudget };
 type BillingCtx = QueryCtx | MutationCtx;
 
-export async function getTeamSubscriptionByOrgId(ctx: BillingCtx, teamId: Id<"teams">) {
-  return await ctx.runQuery(components.stripe.public.getSubscriptionByOrgId, {
-    orgId: teamId,
-  });
-}
-
 export async function getTeamSubscriptionState(ctx: BillingCtx, teamId: Id<"teams">) {
-  const [team, subscription] = await Promise.all([
-    ctx.db.get(teamId),
-    getTeamSubscriptionByOrgId(ctx, teamId),
-  ]);
-  if (!team) {
-    throw new Error("Team not found");
-  }
-
-  const subscriptionPlan = resolvePlanFromStripePriceId(subscription?.priceId);
-  const plan = subscriptionPlan ?? normalizeStoredTeamPlan(team.plan);
-  const hasActiveSubscription = hasActiveTeamSubscriptionStatus(subscription?.status);
-
-  return { team, subscription, plan, hasActiveSubscription };
+  const team = await ctx.db.get(teamId);
+  if (!team) throw new Error("Team not found");
+  return { team, subscription: null, plan: "pro" as const, hasActiveSubscription: true };
 }
 
 export async function getTeamStorageUsedBytes(ctx: BillingCtx, teamId: Id<"teams">) {
   const projects = await ctx.db
     .query("projects")
-    .withIndex("by_team", (q) => q.eq("teamId", teamId))
-    .collect();
-
-  const videosByProject = await Promise.all(
-    projects.map((project) =>
-      ctx.db
-        .query("videos")
-        .withIndex("by_project", (q) => q.eq("projectId", project._id))
-        .collect(),
-    ),
-  );
-
+    .withIndex("by_team", (q) => q.eq("teamId", teamId));
   let total = 0;
-  for (const videos of videosByProject) {
-    for (const video of videos) {
-      if (video.status === "failed") continue;
-      if (typeof video.fileSize === "number" && Number.isFinite(video.fileSize)) {
-        total += video.fileSize;
-      }
-    }
+  for await (const project of projects) {
+    const videos = await ctx.db
+      .query("videos")
+      .withIndex("by_project", (q) => q.eq("projectId", project._id));
+    for await (const video of videos) total += Math.max(0, video.fileSize ?? 0);
   }
-
   return total;
 }
 
 export async function assertTeamHasActiveSubscription(ctx: BillingCtx, teamId: Id<"teams">) {
-  const state = await getTeamSubscriptionState(ctx, teamId);
-  if (!state.hasActiveSubscription) {
-    throw new ConvexError("An active Basic or Pro subscription is required.");
-  }
-  return state;
+  return getTeamSubscriptionState(ctx, teamId);
 }
 
 export async function assertTeamCanStoreBytes(
@@ -117,24 +38,17 @@ export async function assertTeamCanStoreBytes(
   teamId: Id<"teams">,
   incomingBytes: number,
 ) {
-  const [state, storageUsedBytes] = await Promise.all([
-    assertTeamHasActiveSubscription(ctx, teamId),
-    getTeamStorageUsedBytes(ctx, teamId),
-  ]);
-  const storageLimitBytes = TEAM_PLAN_STORAGE_LIMIT_BYTES[state.plan];
-  const requestedBytes = Number.isFinite(incomingBytes) ? Math.max(0, incomingBytes) : 0;
-
-  if (storageUsedBytes + requestedBytes > storageLimitBytes) {
+  const state = await getTeamSubscriptionState(ctx, teamId);
+  // One shared disk budget covers every team, including failed originals and pending uploads.
+  let allocated = 0;
+  for await (const video of ctx.db.query("videos")) {
+    allocated += Math.max(0, video.fileSize ?? 0);
+  }
+  const storageUsedBytes = await getTeamStorageUsedBytes(ctx, teamId);
+  if (allocated + Math.max(0, incomingBytes) > storageBudget) {
     throw new ConvexError(
-      state.plan === "pro"
-        ? "Storage limit reached for the pro plan. Delete old videos or versions to free up space."
-        : "Storage limit reached for the basic plan. Upgrade to continue uploading.",
+      "The self-hosted storage budget is full. Delete old videos or ask the operator to increase it.",
     );
   }
-
-  return {
-    ...state,
-    storageUsedBytes,
-    storageLimitBytes,
-  };
+  return { ...state, storageUsedBytes, storageLimitBytes: storageBudget };
 }

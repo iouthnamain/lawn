@@ -1,26 +1,25 @@
 /// <reference types="vite/client" />
 
-import { convexTest } from "convex-test";
 import { expect, test } from "vitest";
 import { api } from "./_generated/api";
 import { createVersionRecord } from "./videos";
-import schema from "./schema";
+import { createTestBackend } from "./test.setup";
 import type { Id } from "./_generated/dataModel";
 
 const modules = import.meta.glob("./**/*.ts");
 
 async function seedPublicStack() {
-  const t = convexTest(schema, modules);
+  const t = await createTestBackend(modules);
   const seeded = await t.run(async (ctx) => {
     const teamId = await ctx.db.insert("teams", {
       name: "Garden",
       slug: "garden",
-      ownerClerkId: "user_1",
+      ownerClerkId: t.users.user_1.id,
       plan: "basic",
     });
     await ctx.db.insert("teamMembers", {
       teamId,
-      userClerkId: "user_1",
+      userClerkId: t.users.user_1.id,
       userEmail: "owner@example.com",
       userName: "Owner",
       role: "admin",
@@ -31,7 +30,7 @@ async function seedPublicStack() {
     });
     const v1 = await ctx.db.insert("videos", {
       projectId,
-      uploadedByClerkId: "user_1",
+      uploadedByClerkId: t.users.user_1.id,
       uploaderName: "Owner",
       title: "First cut",
       visibility: "public",
@@ -48,7 +47,7 @@ async function seedPublicStack() {
   const { videoId: v2 } = await t.run((ctx) =>
     createVersionRecord(ctx, {
       sourceVideoId: seeded.v1,
-      uploadedByClerkId: "user_1",
+      uploadedByClerkId: t.users.user_1.id,
       uploaderName: "Owner",
       publicId: "watch-v2",
     }),
@@ -113,7 +112,7 @@ test("disabling version browsing collapses links to the latest version", async (
     });
   });
 
-  await t.withIdentity({ subject: "user_1" }).mutation(api.videos.setPublicVersionBrowsing, {
+  await t.withIdentity(t.users.user_1.identity).mutation(api.videos.setPublicVersionBrowsing, {
     videoId: v1 as Id<"videos">,
     enabled: false,
   });
@@ -149,7 +148,7 @@ test("setVisibility toggles every version in the stack and gates the public URL"
   });
 
   await t
-    .withIdentity({ subject: "user_1" })
+    .withIdentity(t.users.user_1.identity)
     .mutation(api.videos.setVisibility, { videoId: v2 as Id<"videos">, visibility: "private" });
 
   const afterPrivate = await t.run(async (ctx) => ({
@@ -166,7 +165,7 @@ test("setVisibility toggles every version in the stack and gates the public URL"
   }
 
   await t
-    .withIdentity({ subject: "user_1" })
+    .withIdentity(t.users.user_1.identity)
     .mutation(api.videos.setVisibility, { videoId: v1 as Id<"videos">, visibility: "public" });
 
   const afterPublic = await t.run(async (ctx) => ({
@@ -178,18 +177,18 @@ test("setVisibility toggles every version in the stack and gates the public URL"
 });
 
 test("reports processing when a public video has no ready version yet", async () => {
-  const t = convexTest(schema, modules);
+  const t = await createTestBackend(modules);
   await t.run(async (ctx) => {
     const teamId = await ctx.db.insert("teams", {
       name: "Garden",
       slug: "garden",
-      ownerClerkId: "user_1",
+      ownerClerkId: t.users.user_1.id,
       plan: "basic",
     });
     const projectId = await ctx.db.insert("projects", { teamId, name: "Campaign" });
     await ctx.db.insert("videos", {
       projectId,
-      uploadedByClerkId: "user_1",
+      uploadedByClerkId: t.users.user_1.id,
       uploaderName: "Owner",
       title: "Fresh upload",
       visibility: "public",
@@ -206,18 +205,18 @@ test("reports processing when a public video has no ready version yet", async ()
 });
 
 test("is unavailable when the only public version failed", async () => {
-  const t = convexTest(schema, modules);
+  const t = await createTestBackend(modules);
   await t.run(async (ctx) => {
     const teamId = await ctx.db.insert("teams", {
       name: "Garden",
       slug: "garden",
-      ownerClerkId: "user_1",
+      ownerClerkId: t.users.user_1.id,
       plan: "basic",
     });
     const projectId = await ctx.db.insert("projects", { teamId, name: "Campaign" });
     await ctx.db.insert("videos", {
       projectId,
-      uploadedByClerkId: "user_1",
+      uploadedByClerkId: t.users.user_1.id,
       uploaderName: "Owner",
       title: "Broken upload",
       visibility: "public",
@@ -244,7 +243,7 @@ test("dashboard aliases resolve public ids throughout the upload lifecycle", asy
     const videoId = await t.run((ctx) =>
       ctx.db.insert("videos", {
         projectId,
-        uploadedByClerkId: "user_1",
+        uploadedByClerkId: t.users.user_1.id,
         uploaderName: "Owner",
         title: `${status} video`,
         visibility: "public",
@@ -265,7 +264,7 @@ test("dashboard aliases do not reveal private, missing, or malformed video ids",
   const privateVideoId = await t.run((ctx) =>
     ctx.db.insert("videos", {
       projectId,
-      uploadedByClerkId: "user_1",
+      uploadedByClerkId: t.users.user_1.id,
       uploaderName: "Owner",
       title: "Private video",
       visibility: "private",
@@ -277,7 +276,7 @@ test("dashboard aliases do not reveal private, missing, or malformed video ids",
   const missingVideoId = await t.run(async (ctx) => {
     const videoId = await ctx.db.insert("videos", {
       projectId,
-      uploadedByClerkId: "user_1",
+      uploadedByClerkId: t.users.user_1.id,
       uploaderName: "Owner",
       title: "Deleted video",
       visibility: "public",

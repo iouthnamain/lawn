@@ -1,24 +1,23 @@
 /// <reference types="vite/client" />
 
-import { convexTest } from "convex-test";
 import { expect, test } from "vitest";
 import { api, internal } from "./_generated/api";
-import schema from "./schema";
+import { createTestBackend } from "./test.setup";
 
 const modules = import.meta.glob("./**/*.ts");
 
 test("video pages remain accessible and expose capped comment counts", async () => {
-  const t = convexTest(schema, modules);
+  const t = await createTestBackend(modules);
   const seeded = await t.run(async (ctx) => {
     const teamId = await ctx.db.insert("teams", {
       name: "Garden",
       slug: "garden",
-      ownerClerkId: "owner",
+      ownerClerkId: t.users.owner.id,
       plan: "basic",
     });
     await ctx.db.insert("teamMembers", {
       teamId,
-      userClerkId: "owner",
+      userClerkId: t.users.owner.id,
       userEmail: "owner@example.com",
       userName: "Owner",
       role: "owner",
@@ -29,7 +28,7 @@ test("video pages remain accessible and expose capped comment counts", async () 
       videoIds.push(
         await ctx.db.insert("videos", {
           projectId,
-          uploadedByClerkId: "owner",
+          uploadedByClerkId: t.users.owner.id,
           uploaderName: "Owner",
           title: `Video ${index}`,
           visibility: "public",
@@ -43,7 +42,7 @@ test("video pages remain accessible and expose capped comment counts", async () 
     for (let index = 0; index < 201; index += 1) {
       await ctx.db.insert("comments", {
         videoId: newestVideoId,
-        userClerkId: "owner",
+        userClerkId: t.users.owner.id,
         userName: "Owner",
         text: `Comment ${index}`,
         timestampSeconds: index,
@@ -53,7 +52,7 @@ test("video pages remain accessible and expose capped comment counts", async () 
     return { projectId, videoIds, newestVideoId };
   });
 
-  const authed = t.withIdentity({ subject: "owner" });
+  const authed = t.withIdentity(t.users.owner.identity);
   const first = await authed.query(api.videos.list, {
     projectId: seeded.projectId,
     paginationOpts: { cursor: null, numItems: 40 },
@@ -77,17 +76,17 @@ test("video pages remain accessible and expose capped comment counts", async () 
 });
 
 test("folder count responses identify capped values", async () => {
-  const t = convexTest(schema, modules);
+  const t = await createTestBackend(modules);
   const seeded = await t.run(async (ctx) => {
     const teamId = await ctx.db.insert("teams", {
       name: "Garden",
       slug: "garden",
-      ownerClerkId: "owner",
+      ownerClerkId: t.users.owner.id,
       plan: "basic",
     });
     await ctx.db.insert("teamMembers", {
       teamId,
-      userClerkId: "owner",
+      userClerkId: t.users.owner.id,
       userEmail: "owner@example.com",
       userName: "Owner",
       role: "owner",
@@ -101,7 +100,7 @@ test("folder count responses identify capped values", async () => {
       });
       await ctx.db.insert("videos", {
         projectId,
-        uploadedByClerkId: "owner",
+        uploadedByClerkId: t.users.owner.id,
         uploaderName: "Owner",
         title: `Video ${index}`,
         visibility: "public",
@@ -114,7 +113,7 @@ test("folder count responses identify capped values", async () => {
   });
 
   const projects = await t
-    .withIdentity({ subject: "owner" })
+    .withIdentity(t.users.owner.identity)
     .query(api.projects.list, { teamId: seeded.teamId });
   expect(projects.find((project) => project._id === seeded.projectId)).toMatchObject({
     videoCount: 100,
@@ -125,18 +124,18 @@ test("folder count responses identify capped values", async () => {
 });
 
 test("stale upload selection includes legacy rows without activity timestamps", async () => {
-  const t = convexTest(schema, modules);
+  const t = await createTestBackend(modules);
   const seeded = await t.run(async (ctx) => {
     const teamId = await ctx.db.insert("teams", {
       name: "Garden",
       slug: "garden",
-      ownerClerkId: "owner",
+      ownerClerkId: t.users.owner.id,
       plan: "basic",
     });
     const projectId = await ctx.db.insert("projects", { teamId, name: "Campaign" });
     const legacyVideoId = await ctx.db.insert("videos", {
       projectId,
-      uploadedByClerkId: "owner",
+      uploadedByClerkId: t.users.owner.id,
       uploaderName: "Owner",
       title: "Legacy upload",
       visibility: "public",
@@ -146,7 +145,7 @@ test("stale upload selection includes legacy rows without activity timestamps", 
     });
     const datedVideoId = await ctx.db.insert("videos", {
       projectId,
-      uploadedByClerkId: "owner",
+      uploadedByClerkId: t.users.owner.id,
       uploaderName: "Owner",
       title: "Dated upload",
       visibility: "public",
@@ -168,19 +167,19 @@ test("stale upload selection includes legacy rows without activity timestamps", 
 });
 
 test("asset-less Mux rows rotate so valid candidates cannot remain blocked", async () => {
-  const t = convexTest(schema, modules);
+  const t = await createTestBackend(modules);
   const validVideoId = await t.run(async (ctx) => {
     const teamId = await ctx.db.insert("teams", {
       name: "Garden",
       slug: "garden",
-      ownerClerkId: "owner",
+      ownerClerkId: t.users.owner.id,
       plan: "basic",
     });
     const projectId = await ctx.db.insert("projects", { teamId, name: "Campaign" });
     for (let index = 0; index < 30; index += 1) {
       await ctx.db.insert("videos", {
         projectId,
-        uploadedByClerkId: "owner",
+        uploadedByClerkId: t.users.owner.id,
         uploaderName: "Owner",
         title: `Interrupted ${index}`,
         visibility: "public",
@@ -192,7 +191,7 @@ test("asset-less Mux rows rotate so valid candidates cannot remain blocked", asy
     }
     return await ctx.db.insert("videos", {
       projectId,
-      uploadedByClerkId: "owner",
+      uploadedByClerkId: t.users.owner.id,
       uploaderName: "Owner",
       title: "Valid asset",
       visibility: "public",

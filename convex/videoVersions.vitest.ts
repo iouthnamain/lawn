@@ -1,27 +1,26 @@
 /// <reference types="vite/client" />
 
-import { convexTest } from "convex-test";
 import { expect, test, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import { getTeamStorageUsedBytes } from "./billingHelpers";
 import { createVersionRecord, MAX_VIDEO_STACK_SIZE } from "./videos";
-import schema from "./schema";
+import { createTestBackend } from "./test.setup";
 
 const modules = import.meta.glob("./**/*.ts");
 const testPagination = { cursor: null, numItems: 1_000 };
 
 test("materializes v1 and appends after the actual latest version", async () => {
-  const t = convexTest(schema, modules);
+  const t = await createTestBackend(modules);
   const seeded = await t.run(async (ctx) => {
     const teamId = await ctx.db.insert("teams", {
       name: "Garden",
       slug: "garden",
-      ownerClerkId: "user_1",
+      ownerClerkId: t.users.user_1.id,
       plan: "basic",
     });
     await ctx.db.insert("teamMembers", {
       teamId,
-      userClerkId: "user_1",
+      userClerkId: t.users.user_1.id,
       userEmail: "owner@example.com",
       userName: "Owner",
       role: "admin",
@@ -32,7 +31,7 @@ test("materializes v1 and appends after the actual latest version", async () => 
     });
     const videoId = await ctx.db.insert("videos", {
       projectId,
-      uploadedByClerkId: "user_1",
+      uploadedByClerkId: t.users.user_1.id,
       uploaderName: "Owner",
       title: "First cut",
       description: "Original notes",
@@ -47,7 +46,7 @@ test("materializes v1 and appends after the actual latest version", async () => 
   const { videoId: v2 } = await t.run((ctx) =>
     createVersionRecord(ctx, {
       sourceVideoId: seeded.videoId,
-      uploadedByClerkId: "user_1",
+      uploadedByClerkId: t.users.user_1.id,
       uploaderName: "Owner",
       publicId: "public-v2",
       fileSize: 200,
@@ -66,7 +65,7 @@ test("materializes v1 and appends after the actual latest version", async () => 
   const { videoId: v3 } = await t.run((ctx) =>
     createVersionRecord(ctx, {
       sourceVideoId: seeded.videoId,
-      uploadedByClerkId: "user_1",
+      uploadedByClerkId: t.users.user_1.id,
       uploaderName: "Owner",
       publicId: "public-v3",
       fileSize: 300,
@@ -100,7 +99,7 @@ test("materializes v1 and appends after the actual latest version", async () => 
     projectId: seeded.projectId,
   });
 
-  const visible = await t.withIdentity({ subject: "user_1" }).query(api.videos.list, {
+  const visible = await t.withIdentity(t.users.user_1.identity).query(api.videos.list, {
     projectId: seeded.projectId,
     paginationOpts: testPagination,
   });
@@ -108,12 +107,12 @@ test("materializes v1 and appends after the actual latest version", async () => 
 });
 
 test("selects the stack head independently of version number ordering", async () => {
-  const t = convexTest(schema, modules);
+  const t = await createTestBackend(modules);
   const seeded = await t.run(async (ctx) => {
     const teamId = await ctx.db.insert("teams", {
       name: "Garden",
       slug: "garden",
-      ownerClerkId: "owner",
+      ownerClerkId: t.users.owner.id,
       plan: "basic",
     });
     const projectId = await ctx.db.insert("projects", {
@@ -122,7 +121,7 @@ test("selects the stack head independently of version number ordering", async ()
     });
     const v1 = await ctx.db.insert("videos", {
       projectId,
-      uploadedByClerkId: "owner",
+      uploadedByClerkId: t.users.owner.id,
       uploaderName: "Owner",
       title: "Cut",
       visibility: "public",
@@ -136,7 +135,7 @@ test("selects the stack head independently of version number ordering", async ()
   const { videoId: v2 } = await t.run((ctx) =>
     createVersionRecord(ctx, {
       sourceVideoId: seeded.v1,
-      uploadedByClerkId: "owner",
+      uploadedByClerkId: t.users.owner.id,
       uploaderName: "Owner",
       publicId: "head-v2",
     }),
@@ -144,7 +143,7 @@ test("selects the stack head independently of version number ordering", async ()
   const { videoId: v3 } = await t.run((ctx) =>
     createVersionRecord(ctx, {
       sourceVideoId: seeded.v1,
-      uploadedByClerkId: "owner",
+      uploadedByClerkId: t.users.owner.id,
       uploaderName: "Owner",
       publicId: "head-v3",
     }),
@@ -154,7 +153,7 @@ test("selects the stack head independently of version number ordering", async ()
   const { videoId: v4 } = await t.run((ctx) =>
     createVersionRecord(ctx, {
       sourceVideoId: v2,
-      uploadedByClerkId: "owner",
+      uploadedByClerkId: t.users.owner.id,
       uploaderName: "Owner",
       publicId: "head-v4",
     }),
@@ -171,12 +170,12 @@ test("selects the stack head independently of version number ordering", async ()
 });
 
 test("rejects a stack with more than one head", async () => {
-  const t = convexTest(schema, modules);
+  const t = await createTestBackend(modules);
   const seeded = await t.run(async (ctx) => {
     const teamId = await ctx.db.insert("teams", {
       name: "Garden",
       slug: "garden",
-      ownerClerkId: "owner",
+      ownerClerkId: t.users.owner.id,
       plan: "basic",
     });
     const projectId = await ctx.db.insert("projects", {
@@ -185,7 +184,7 @@ test("rejects a stack with more than one head", async () => {
     });
     const v1 = await ctx.db.insert("videos", {
       projectId,
-      uploadedByClerkId: "owner",
+      uploadedByClerkId: t.users.owner.id,
       uploaderName: "Owner",
       title: "Cut",
       visibility: "public",
@@ -197,7 +196,7 @@ test("rejects a stack with more than one head", async () => {
     await ctx.db.patch(v1, { versionStackId: v1 });
     const v2 = await ctx.db.insert("videos", {
       projectId,
-      uploadedByClerkId: "owner",
+      uploadedByClerkId: t.users.owner.id,
       uploaderName: "Owner",
       title: "Cut",
       visibility: "public",
@@ -214,7 +213,7 @@ test("rejects a stack with more than one head", async () => {
     t.run((ctx) =>
       createVersionRecord(ctx, {
         sourceVideoId: seeded.v1,
-        uploadedByClerkId: "owner",
+        uploadedByClerkId: t.users.owner.id,
         uploaderName: "Owner",
         publicId: "multi-head-v3",
       }),
@@ -223,17 +222,17 @@ test("rejects a stack with more than one head", async () => {
 });
 
 test("rejects deletion when the stack is not one connected chain", async () => {
-  const t = convexTest(schema, modules);
+  const t = await createTestBackend(modules);
   const seeded = await t.run(async (ctx) => {
     const teamId = await ctx.db.insert("teams", {
       name: "Garden",
       slug: "garden",
-      ownerClerkId: "owner",
+      ownerClerkId: t.users.owner.id,
       plan: "basic",
     });
     await ctx.db.insert("teamMembers", {
       teamId,
-      userClerkId: "owner",
+      userClerkId: t.users.owner.id,
       userEmail: "owner@example.com",
       userName: "Owner",
       role: "owner",
@@ -244,7 +243,7 @@ test("rejects deletion when the stack is not one connected chain", async () => {
     });
     const v1 = await ctx.db.insert("videos", {
       projectId,
-      uploadedByClerkId: "owner",
+      uploadedByClerkId: t.users.owner.id,
       uploaderName: "Owner",
       title: "Cut",
       visibility: "public",
@@ -256,7 +255,7 @@ test("rejects deletion when the stack is not one connected chain", async () => {
     await ctx.db.patch(v1, { versionStackId: v1 });
     const v2 = await ctx.db.insert("videos", {
       projectId,
-      uploadedByClerkId: "owner",
+      uploadedByClerkId: t.users.owner.id,
       uploaderName: "Owner",
       title: "Cut",
       visibility: "public",
@@ -268,7 +267,7 @@ test("rejects deletion when the stack is not one connected chain", async () => {
     });
     const v3 = await ctx.db.insert("videos", {
       projectId,
-      uploadedByClerkId: "owner",
+      uploadedByClerkId: t.users.owner.id,
       uploaderName: "Owner",
       title: "Cut",
       visibility: "public",
@@ -284,24 +283,24 @@ test("rejects deletion when the stack is not one connected chain", async () => {
   });
 
   await expect(
-    t.withIdentity({ subject: "owner" }).mutation(api.videos.remove, {
+    t.withIdentity(t.users.owner.identity).mutation(api.videos.remove, {
       videoId: seeded.v1,
     }),
   ).rejects.toThrow("one connected acyclic chain");
 });
 
 test("rejects deletion when stack versions cross projects", async () => {
-  const t = convexTest(schema, modules);
+  const t = await createTestBackend(modules);
   const seeded = await t.run(async (ctx) => {
     const teamId = await ctx.db.insert("teams", {
       name: "Garden",
       slug: "garden",
-      ownerClerkId: "owner",
+      ownerClerkId: t.users.owner.id,
       plan: "basic",
     });
     await ctx.db.insert("teamMembers", {
       teamId,
-      userClerkId: "owner",
+      userClerkId: t.users.owner.id,
       userEmail: "owner@example.com",
       userName: "Owner",
       role: "owner",
@@ -316,7 +315,7 @@ test("rejects deletion when stack versions cross projects", async () => {
     });
     const v1 = await ctx.db.insert("videos", {
       projectId,
-      uploadedByClerkId: "owner",
+      uploadedByClerkId: t.users.owner.id,
       uploaderName: "Owner",
       title: "Cut",
       visibility: "public",
@@ -329,7 +328,7 @@ test("rejects deletion when stack versions cross projects", async () => {
   const { videoId: v2 } = await t.run((ctx) =>
     createVersionRecord(ctx, {
       sourceVideoId: seeded.v1,
-      uploadedByClerkId: "owner",
+      uploadedByClerkId: t.users.owner.id,
       uploaderName: "Owner",
       publicId: "cross-project-v2",
     }),
@@ -337,24 +336,24 @@ test("rejects deletion when stack versions cross projects", async () => {
   await t.run((ctx) => ctx.db.patch(v2, { projectId: seeded.otherProjectId }));
 
   await expect(
-    t.withIdentity({ subject: "owner" }).mutation(api.videos.remove, {
+    t.withIdentity(t.users.owner.identity).mutation(api.videos.remove, {
       videoId: seeded.v1,
     }),
   ).rejects.toThrow("must belong to the same project");
 });
 
 test("moves the whole stack and rewires middle and latest deletions", async () => {
-  const t = convexTest(schema, modules);
+  const t = await createTestBackend(modules);
   const seeded = await t.run(async (ctx) => {
     const teamId = await ctx.db.insert("teams", {
       name: "Garden",
       slug: "garden",
-      ownerClerkId: "user_1",
+      ownerClerkId: t.users.user_1.id,
       plan: "basic",
     });
     await ctx.db.insert("teamMembers", {
       teamId,
-      userClerkId: "user_1",
+      userClerkId: t.users.user_1.id,
       userEmail: "owner@example.com",
       userName: "Owner",
       role: "admin",
@@ -369,7 +368,7 @@ test("moves the whole stack and rewires middle and latest deletions", async () =
     });
     const v1 = await ctx.db.insert("videos", {
       projectId: sourceProjectId,
-      uploadedByClerkId: "user_1",
+      uploadedByClerkId: t.users.user_1.id,
       uploaderName: "Owner",
       title: "Cut",
       visibility: "public",
@@ -383,7 +382,7 @@ test("moves the whole stack and rewires middle and latest deletions", async () =
   const { videoId: v2 } = await t.run((ctx) =>
     createVersionRecord(ctx, {
       sourceVideoId: seeded.v1,
-      uploadedByClerkId: "user_1",
+      uploadedByClerkId: t.users.user_1.id,
       uploaderName: "Owner",
       publicId: "move-v2",
     }),
@@ -391,13 +390,13 @@ test("moves the whole stack and rewires middle and latest deletions", async () =
   const { videoId: v3 } = await t.run((ctx) =>
     createVersionRecord(ctx, {
       sourceVideoId: seeded.v1,
-      uploadedByClerkId: "user_1",
+      uploadedByClerkId: t.users.user_1.id,
       uploaderName: "Owner",
       publicId: "move-v3",
     }),
   );
 
-  const authed = t.withIdentity({ subject: "user_1" });
+  const authed = t.withIdentity(t.users.user_1.identity);
   await authed.mutation(api.videos.move, {
     videoId: v2,
     projectId: seeded.destinationProjectId,
@@ -446,17 +445,17 @@ test("moves the whole stack and rewires middle and latest deletions", async () =
 });
 
 test("refuses to move a stack whose versions do not share the source project", async () => {
-  const t = convexTest(schema, modules);
+  const t = await createTestBackend(modules);
   const seeded = await t.run(async (ctx) => {
     const teamId = await ctx.db.insert("teams", {
       name: "Garden",
       slug: "garden",
-      ownerClerkId: "owner",
+      ownerClerkId: t.users.owner.id,
       plan: "basic",
     });
     await ctx.db.insert("teamMembers", {
       teamId,
-      userClerkId: "owner",
+      userClerkId: t.users.owner.id,
       userEmail: "owner@example.com",
       userName: "Owner",
       role: "owner",
@@ -475,7 +474,7 @@ test("refuses to move a stack whose versions do not share the source project", a
     });
     const v1 = await ctx.db.insert("videos", {
       projectId: sourceProjectId,
-      uploadedByClerkId: "owner",
+      uploadedByClerkId: t.users.owner.id,
       uploaderName: "Owner",
       title: "Cut",
       visibility: "public",
@@ -488,7 +487,7 @@ test("refuses to move a stack whose versions do not share the source project", a
   const { videoId: v2 } = await t.run((ctx) =>
     createVersionRecord(ctx, {
       sourceVideoId: seeded.v1,
-      uploadedByClerkId: "owner",
+      uploadedByClerkId: t.users.owner.id,
       uploaderName: "Owner",
       publicId: "mismatch-v2",
     }),
@@ -496,7 +495,7 @@ test("refuses to move a stack whose versions do not share the source project", a
   await t.run((ctx) => ctx.db.patch(seeded.v1, { projectId: seeded.mismatchedProjectId }));
 
   await expect(
-    t.withIdentity({ subject: "owner" }).mutation(api.videos.move, {
+    t.withIdentity(t.users.owner.identity).mutation(api.videos.move, {
       videoId: v2,
       projectId: seeded.destinationProjectId,
     }),
@@ -504,17 +503,17 @@ test("refuses to move a stack whose versions do not share the source project", a
 });
 
 test("deleting v1 preserves stable identities and supports creating the next version", async () => {
-  const t = convexTest(schema, modules);
+  const t = await createTestBackend(modules);
   const seeded = await t.run(async (ctx) => {
     const teamId = await ctx.db.insert("teams", {
       name: "Garden",
       slug: "garden",
-      ownerClerkId: "user_1",
+      ownerClerkId: t.users.user_1.id,
       plan: "basic",
     });
     await ctx.db.insert("teamMembers", {
       teamId,
-      userClerkId: "user_1",
+      userClerkId: t.users.user_1.id,
       userEmail: "owner@example.com",
       userName: "Owner",
       role: "admin",
@@ -525,7 +524,7 @@ test("deleting v1 preserves stable identities and supports creating the next ver
     });
     const v1 = await ctx.db.insert("videos", {
       projectId,
-      uploadedByClerkId: "user_1",
+      uploadedByClerkId: t.users.user_1.id,
       uploaderName: "Owner",
       title: "Cut",
       visibility: "public",
@@ -539,7 +538,7 @@ test("deleting v1 preserves stable identities and supports creating the next ver
   const { videoId: v2 } = await t.run((ctx) =>
     createVersionRecord(ctx, {
       sourceVideoId: seeded.v1,
-      uploadedByClerkId: "user_1",
+      uploadedByClerkId: t.users.user_1.id,
       uploaderName: "Owner",
       publicId: "first-v2",
     }),
@@ -547,7 +546,7 @@ test("deleting v1 preserves stable identities and supports creating the next ver
   const { videoId: v3 } = await t.run((ctx) =>
     createVersionRecord(ctx, {
       sourceVideoId: v2,
-      uploadedByClerkId: "user_1",
+      uploadedByClerkId: t.users.user_1.id,
       uploaderName: "Owner",
       publicId: "first-v3",
     }),
@@ -556,14 +555,14 @@ test("deleting v1 preserves stable identities and supports creating the next ver
     ctx.db.insert("shareLinks", {
       videoId: v2,
       token: "survivor-share-link",
-      createdByClerkId: "user_1",
+      createdByClerkId: t.users.user_1.id,
       createdByName: "Owner",
       allowDownload: true,
       viewCount: 0,
     }),
   );
 
-  const authed = t.withIdentity({ subject: "user_1" });
+  const authed = t.withIdentity(t.users.user_1.identity);
   const result = await authed.mutation(api.videos.remove, { videoId: seeded.v1 });
   expect(result.replacementVideoId).toBe(v2);
 
@@ -601,7 +600,7 @@ test("deleting v1 preserves stable identities and supports creating the next ver
   } = await t.run((ctx) =>
     createVersionRecord(ctx, {
       sourceVideoId: v2,
-      uploadedByClerkId: "user_1",
+      uploadedByClerkId: t.users.user_1.id,
       uploaderName: "Owner",
       publicId: "first-v4",
     }),
@@ -627,17 +626,17 @@ test("deleting v1 preserves stable identities and supports creating the next ver
 test("deletes dependents in resumable batches after removing the version row", async () => {
   vi.useFakeTimers();
   try {
-    const t = convexTest(schema, modules);
+    const t = await createTestBackend(modules);
     const seeded = await t.run(async (ctx) => {
       const teamId = await ctx.db.insert("teams", {
         name: "Garden",
         slug: "garden",
-        ownerClerkId: "owner",
+        ownerClerkId: t.users.owner.id,
         plan: "basic",
       });
       await ctx.db.insert("teamMembers", {
         teamId,
-        userClerkId: "owner",
+        userClerkId: t.users.owner.id,
         userEmail: "owner@example.com",
         userName: "Owner",
         role: "owner",
@@ -648,7 +647,7 @@ test("deletes dependents in resumable batches after removing the version row", a
       });
       const v1 = await ctx.db.insert("videos", {
         projectId,
-        uploadedByClerkId: "owner",
+        uploadedByClerkId: t.users.owner.id,
         uploaderName: "Owner",
         title: "Cut",
         visibility: "public",
@@ -661,7 +660,7 @@ test("deletes dependents in resumable batches after removing the version row", a
     const { videoId: v2 } = await t.run((ctx) =>
       createVersionRecord(ctx, {
         sourceVideoId: seeded.v1,
-        uploadedByClerkId: "owner",
+        uploadedByClerkId: t.users.owner.id,
         uploaderName: "Owner",
         publicId: "batch-v2",
       }),
@@ -669,7 +668,7 @@ test("deletes dependents in resumable batches after removing the version row", a
     const { videoId: v3 } = await t.run((ctx) =>
       createVersionRecord(ctx, {
         sourceVideoId: v2,
-        uploadedByClerkId: "owner",
+        uploadedByClerkId: t.users.owner.id,
         uploaderName: "Owner",
         publicId: "batch-v3",
       }),
@@ -678,7 +677,7 @@ test("deletes dependents in resumable batches after removing the version row", a
       for (let index = 0; index < 26; index += 1) {
         await ctx.db.insert("comments", {
           videoId: v2,
-          userClerkId: "owner",
+          userClerkId: t.users.owner.id,
           userName: "Owner",
           text: `Comment ${index}`,
           timestampSeconds: index,
@@ -688,7 +687,7 @@ test("deletes dependents in resumable batches after removing the version row", a
       const shareLinkId = await ctx.db.insert("shareLinks", {
         videoId: v2,
         token: "batch-link",
-        createdByClerkId: "owner",
+        createdByClerkId: t.users.owner.id,
         createdByName: "Owner",
         allowDownload: true,
         viewCount: 0,
@@ -703,7 +702,7 @@ test("deletes dependents in resumable batches after removing the version row", a
     });
 
     const result = await t
-      .withIdentity({ subject: "owner" })
+      .withIdentity(t.users.owner.identity)
       .mutation(api.videos.remove, { videoId: v2 });
     expect(result.replacementVideoId).toBe(v3);
 
@@ -769,12 +768,12 @@ test("deletes dependents in resumable batches after removing the version row", a
 test("finishes deletion jobs queued before version rows were removed eagerly", async () => {
   vi.useFakeTimers();
   try {
-    const t = convexTest(schema, modules);
+    const t = await createTestBackend(modules);
     const videoId = await t.run(async (ctx) => {
       const teamId = await ctx.db.insert("teams", {
         name: "Garden",
         slug: "garden",
-        ownerClerkId: "owner",
+        ownerClerkId: t.users.owner.id,
         plan: "basic",
       });
       const projectId = await ctx.db.insert("projects", {
@@ -783,7 +782,7 @@ test("finishes deletion jobs queued before version rows were removed eagerly", a
       });
       const legacyVideoId = await ctx.db.insert("videos", {
         projectId,
-        uploadedByClerkId: "owner",
+        uploadedByClerkId: t.users.owner.id,
         uploaderName: "Owner",
         title: "Legacy queued deletion",
         visibility: "public",
@@ -794,7 +793,7 @@ test("finishes deletion jobs queued before version rows were removed eagerly", a
       for (let index = 0; index < 10; index += 1) {
         await ctx.db.insert("comments", {
           videoId: legacyVideoId,
-          userClerkId: "owner",
+          userClerkId: t.users.owner.id,
           userName: "Owner",
           text: `Legacy comment ${index}`,
           timestampSeconds: index,
@@ -835,17 +834,17 @@ test("finishes deletion jobs queued before version rows were removed eagerly", a
 });
 
 test("deletes an unstacked legacy video with no replacement", async () => {
-  const t = convexTest(schema, modules);
+  const t = await createTestBackend(modules);
   const videoId = await t.run(async (ctx) => {
     const teamId = await ctx.db.insert("teams", {
       name: "Garden",
       slug: "garden",
-      ownerClerkId: "owner",
+      ownerClerkId: t.users.owner.id,
       plan: "basic",
     });
     await ctx.db.insert("teamMembers", {
       teamId,
-      userClerkId: "owner",
+      userClerkId: t.users.owner.id,
       userEmail: "owner@example.com",
       userName: "Owner",
       role: "owner",
@@ -856,7 +855,7 @@ test("deletes an unstacked legacy video with no replacement", async () => {
     });
     return await ctx.db.insert("videos", {
       projectId,
-      uploadedByClerkId: "owner",
+      uploadedByClerkId: t.users.owner.id,
       uploaderName: "Owner",
       title: "Legacy cut",
       visibility: "public",
@@ -867,7 +866,7 @@ test("deletes an unstacked legacy video with no replacement", async () => {
   });
 
   const result = await t
-    .withIdentity({ subject: "owner" })
+    .withIdentity(t.users.owner.identity)
     .mutation(api.videos.remove, { videoId });
   expect(result.replacementVideoId).toBeNull();
   await expect(t.run((ctx) => ctx.db.get(videoId))).resolves.toBeNull();
@@ -876,17 +875,17 @@ test("deletes an unstacked legacy video with no replacement", async () => {
 test("deletes an entire video stack and its dependents", async () => {
   vi.useFakeTimers();
   try {
-    const t = convexTest(schema, modules);
+    const t = await createTestBackend(modules);
     const seeded = await t.run(async (ctx) => {
       const teamId = await ctx.db.insert("teams", {
         name: "Garden",
         slug: "garden",
-        ownerClerkId: "owner",
+        ownerClerkId: t.users.owner.id,
         plan: "basic",
       });
       await ctx.db.insert("teamMembers", {
         teamId,
-        userClerkId: "owner",
+        userClerkId: t.users.owner.id,
         userEmail: "owner@example.com",
         userName: "Owner",
         role: "owner",
@@ -897,7 +896,7 @@ test("deletes an entire video stack and its dependents", async () => {
       });
       const v1 = await ctx.db.insert("videos", {
         projectId,
-        uploadedByClerkId: "owner",
+        uploadedByClerkId: t.users.owner.id,
         uploaderName: "Owner",
         title: "Cut",
         visibility: "public",
@@ -910,7 +909,7 @@ test("deletes an entire video stack and its dependents", async () => {
     const { videoId: v2 } = await t.run((ctx) =>
       createVersionRecord(ctx, {
         sourceVideoId: seeded.v1,
-        uploadedByClerkId: "owner",
+        uploadedByClerkId: t.users.owner.id,
         uploaderName: "Owner",
         publicId: "stack-delete-v2",
       }),
@@ -918,7 +917,7 @@ test("deletes an entire video stack and its dependents", async () => {
     const { videoId: v3 } = await t.run((ctx) =>
       createVersionRecord(ctx, {
         sourceVideoId: v2,
-        uploadedByClerkId: "owner",
+        uploadedByClerkId: t.users.owner.id,
         uploaderName: "Owner",
         publicId: "stack-delete-v3",
       }),
@@ -926,7 +925,7 @@ test("deletes an entire video stack and its dependents", async () => {
     const dependentIds = await t.run(async (ctx) => {
       const commentId = await ctx.db.insert("comments", {
         videoId: seeded.v1,
-        userClerkId: "owner",
+        userClerkId: t.users.owner.id,
         userName: "Owner",
         text: "Old notes",
         timestampSeconds: 1,
@@ -935,7 +934,7 @@ test("deletes an entire video stack and its dependents", async () => {
       const shareLinkId = await ctx.db.insert("shareLinks", {
         videoId: v2,
         token: "stack-delete-link",
-        createdByClerkId: "owner",
+        createdByClerkId: t.users.owner.id,
         createdByName: "Owner",
         allowDownload: true,
         viewCount: 0,
@@ -949,7 +948,7 @@ test("deletes an entire video stack and its dependents", async () => {
       return { commentId, shareLinkId, grantId };
     });
 
-    await t.withIdentity({ subject: "owner" }).mutation(api.videos.removeStack, {
+    await t.withIdentity(t.users.owner.identity).mutation(api.videos.removeStack, {
       videoId: v3,
     });
 
@@ -973,17 +972,17 @@ test("deletes an entire video stack and its dependents", async () => {
 });
 
 test("storage counts every stored version while project lists only the head", async () => {
-  const t = convexTest(schema, modules);
+  const t = await createTestBackend(modules);
   const seeded = await t.run(async (ctx) => {
     const teamId = await ctx.db.insert("teams", {
       name: "Garden",
       slug: "garden",
-      ownerClerkId: "owner",
+      ownerClerkId: t.users.owner.id,
       plan: "basic",
     });
     await ctx.db.insert("teamMembers", {
       teamId,
-      userClerkId: "owner",
+      userClerkId: t.users.owner.id,
       userEmail: "owner@example.com",
       userName: "Owner",
       role: "owner",
@@ -994,7 +993,7 @@ test("storage counts every stored version while project lists only the head", as
     });
     const v1 = await ctx.db.insert("videos", {
       projectId,
-      uploadedByClerkId: "owner",
+      uploadedByClerkId: t.users.owner.id,
       uploaderName: "Owner",
       title: "Cut",
       visibility: "public",
@@ -1008,7 +1007,7 @@ test("storage counts every stored version while project lists only the head", as
   const { videoId: v2 } = await t.run((ctx) =>
     createVersionRecord(ctx, {
       sourceVideoId: seeded.v1,
-      uploadedByClerkId: "owner",
+      uploadedByClerkId: t.users.owner.id,
       uploaderName: "Owner",
       publicId: "storage-v2",
       fileSize: 200,
@@ -1017,18 +1016,18 @@ test("storage counts every stored version while project lists only the head", as
 
   await expect(t.run((ctx) => getTeamStorageUsedBytes(ctx, seeded.teamId))).resolves.toBe(300);
   const listed = await t
-    .withIdentity({ subject: "owner" })
+    .withIdentity(t.users.owner.identity)
     .query(api.videos.list, { projectId: seeded.projectId, paginationOpts: testPagination });
   expect(listed.page.map((video) => video._id)).toEqual([v2]);
 });
 
 test("public version paths enforce authentication and member authorization", async () => {
-  const t = convexTest(schema, modules);
+  const t = await createTestBackend(modules);
   const seeded = await t.run(async (ctx) => {
     const teamId = await ctx.db.insert("teams", {
       name: "Garden",
       slug: "garden",
-      ownerClerkId: "owner",
+      ownerClerkId: t.users.owner.id,
       plan: "basic",
     });
     const projectId = await ctx.db.insert("projects", {
@@ -1037,7 +1036,7 @@ test("public version paths enforce authentication and member authorization", asy
     });
     const videoId = await ctx.db.insert("videos", {
       projectId,
-      uploadedByClerkId: "owner",
+      uploadedByClerkId: t.users.owner.id,
       uploaderName: "Owner",
       title: "Cut",
       visibility: "public",
@@ -1047,14 +1046,14 @@ test("public version paths enforce authentication and member authorization", asy
     });
     await ctx.db.insert("teamMembers", {
       teamId,
-      userClerkId: "viewer",
+      userClerkId: t.users.viewer.id,
       userEmail: "viewer@example.com",
       userName: "Viewer",
       role: "viewer",
     });
     await ctx.db.insert("teamMembers", {
       teamId,
-      userClerkId: "member",
+      userClerkId: t.users.member.id,
       userEmail: "member@example.com",
       userName: "Member",
       role: "member",
@@ -1066,41 +1065,41 @@ test("public version paths enforce authentication and member authorization", asy
     "Not authenticated",
   );
   await expect(
-    t.withIdentity({ subject: "viewer" }).mutation(api.videos.createVersion, {
+    t.withIdentity(t.users.viewer.identity).mutation(api.videos.createVersion, {
       sourceVideoId: seeded.videoId,
       fileSize: 1,
       contentType: "video/mp4",
     }),
   ).rejects.toThrow("Requires member role or higher");
   await expect(
-    t.withIdentity({ subject: "member" }).mutation(api.videos.remove, {
+    t.withIdentity(t.users.member.identity).mutation(api.videos.remove, {
       videoId: seeded.videoId,
     }),
   ).rejects.toThrow("Requires admin role or higher");
   await expect(
-    t.withIdentity({ subject: "member" }).mutation(api.videos.removeStack, {
+    t.withIdentity(t.users.member.identity).mutation(api.videos.removeStack, {
       videoId: seeded.videoId,
     }),
   ).rejects.toThrow("Requires admin role or higher");
 
   const versions = await t
-    .withIdentity({ subject: "member" })
+    .withIdentity(t.users.member.identity)
     .query(api.videos.listVersions, { videoId: seeded.videoId });
   expect(versions).toHaveLength(1);
 });
 
 test("abandoned version uploads atomically restore the previous head", async () => {
-  const t = convexTest(schema, modules);
+  const t = await createTestBackend(modules);
   const seeded = await t.run(async (ctx) => {
     const teamId = await ctx.db.insert("teams", {
       name: "Garden",
       slug: "garden",
-      ownerClerkId: "owner",
+      ownerClerkId: t.users.owner.id,
       plan: "basic",
     });
     await ctx.db.insert("teamMembers", {
       teamId,
-      userClerkId: "owner",
+      userClerkId: t.users.owner.id,
       userEmail: "owner@example.com",
       userName: "Owner",
       role: "owner",
@@ -1111,7 +1110,7 @@ test("abandoned version uploads atomically restore the previous head", async () 
     });
     const v1 = await ctx.db.insert("videos", {
       projectId,
-      uploadedByClerkId: "owner",
+      uploadedByClerkId: t.users.owner.id,
       uploaderName: "Owner",
       title: "Cut",
       visibility: "public",
@@ -1124,7 +1123,7 @@ test("abandoned version uploads atomically restore the previous head", async () 
   const { videoId: v2 } = await t.run((ctx) =>
     createVersionRecord(ctx, {
       sourceVideoId: seeded.v1,
-      uploadedByClerkId: "owner",
+      uploadedByClerkId: t.users.owner.id,
       uploaderName: "Owner",
       publicId: "rollback-v2",
     }),
@@ -1144,7 +1143,7 @@ test("abandoned version uploads atomically restore the previous head", async () 
   expect(state.v1?.supersededByVideoId).toBeUndefined();
 
   const visible = await t
-    .withIdentity({ subject: "owner" })
+    .withIdentity(t.users.owner.identity)
     .query(api.videos.list, { projectId: seeded.projectId, paginationOpts: testPagination });
   expect(visible.page.map((video) => video._id)).toEqual([seeded.v1]);
 });
@@ -1152,17 +1151,17 @@ test("abandoned version uploads atomically restore the previous head", async () 
 test("rolling back a provisional middle version renumbers and remains appendable", async () => {
   vi.useFakeTimers();
   try {
-    const t = convexTest(schema, modules);
+    const t = await createTestBackend(modules);
     const seeded = await t.run(async (ctx) => {
       const teamId = await ctx.db.insert("teams", {
         name: "Garden",
         slug: "garden",
-        ownerClerkId: "owner",
+        ownerClerkId: t.users.owner.id,
         plan: "basic",
       });
       await ctx.db.insert("teamMembers", {
         teamId,
-        userClerkId: "owner",
+        userClerkId: t.users.owner.id,
         userEmail: "owner@example.com",
         userName: "Owner",
         role: "owner",
@@ -1173,7 +1172,7 @@ test("rolling back a provisional middle version renumbers and remains appendable
       });
       const v1 = await ctx.db.insert("videos", {
         projectId,
-        uploadedByClerkId: "owner",
+        uploadedByClerkId: t.users.owner.id,
         uploaderName: "Owner",
         title: "Cut",
         visibility: "public",
@@ -1186,7 +1185,7 @@ test("rolling back a provisional middle version renumbers and remains appendable
     const { videoId: v2 } = await t.run((ctx) =>
       createVersionRecord(ctx, {
         sourceVideoId: seeded.v1,
-        uploadedByClerkId: "owner",
+        uploadedByClerkId: t.users.owner.id,
         uploaderName: "Owner",
         publicId: "middle-rollback-v2",
       }),
@@ -1194,7 +1193,7 @@ test("rolling back a provisional middle version renumbers and remains appendable
     const { videoId: v3 } = await t.run((ctx) =>
       createVersionRecord(ctx, {
         sourceVideoId: v2,
-        uploadedByClerkId: "owner",
+        uploadedByClerkId: t.users.owner.id,
         uploaderName: "Owner",
         publicId: "middle-rollback-v3",
       }),
@@ -1203,7 +1202,7 @@ test("rolling back a provisional middle version renumbers and remains appendable
       for (let index = 0; index < 10; index += 1) {
         await ctx.db.insert("comments", {
           videoId: v2,
-          userClerkId: "owner",
+          userClerkId: t.users.owner.id,
           userName: "Owner",
           text: `Rollback comment ${index}`,
           timestampSeconds: index,
@@ -1240,7 +1239,7 @@ test("rolling back a provisional middle version renumbers and remains appendable
     const appended = await t.run((ctx) =>
       createVersionRecord(ctx, {
         sourceVideoId: seeded.v1,
-        uploadedByClerkId: "owner",
+        uploadedByClerkId: t.users.owner.id,
         uploaderName: "Owner",
         publicId: "middle-rollback-v4",
       }),
@@ -1251,7 +1250,7 @@ test("rolling back a provisional middle version renumbers and remains appendable
     });
 
     const versions = await t
-      .withIdentity({ subject: "owner" })
+      .withIdentity(t.users.owner.identity)
       .query(api.videos.listVersions, { videoId: appended.videoId });
     expect(versions.map((version) => [version._id, version.versionNumber])).toEqual([
       [appended.videoId, 3],
@@ -1273,12 +1272,12 @@ test("rolling back a provisional middle version renumbers and remains appendable
 });
 
 test("hard failure after promotion rolls back a version before a Mux asset exists", async () => {
-  const t = convexTest(schema, modules);
+  const t = await createTestBackend(modules);
   const seeded = await t.run(async (ctx) => {
     const teamId = await ctx.db.insert("teams", {
       name: "Garden",
       slug: "garden",
-      ownerClerkId: "owner",
+      ownerClerkId: t.users.owner.id,
       plan: "basic",
     });
     const projectId = await ctx.db.insert("projects", {
@@ -1287,7 +1286,7 @@ test("hard failure after promotion rolls back a version before a Mux asset exist
     });
     const v1 = await ctx.db.insert("videos", {
       projectId,
-      uploadedByClerkId: "owner",
+      uploadedByClerkId: t.users.owner.id,
       uploaderName: "Owner",
       title: "Cut",
       visibility: "public",
@@ -1300,7 +1299,7 @@ test("hard failure after promotion rolls back a version before a Mux asset exist
   const { videoId: v2 } = await t.run((ctx) =>
     createVersionRecord(ctx, {
       sourceVideoId: seeded.v1,
-      uploadedByClerkId: "owner",
+      uploadedByClerkId: t.users.owner.id,
       uploaderName: "Owner",
       publicId: "promoted-v2",
     }),
@@ -1322,17 +1321,17 @@ test("hard failure after promotion rolls back a version before a Mux asset exist
 });
 
 test("failure after Mux promotion stays retryable as the latest version", async () => {
-  const t = convexTest(schema, modules);
+  const t = await createTestBackend(modules);
   const seeded = await t.run(async (ctx) => {
     const teamId = await ctx.db.insert("teams", {
       name: "Garden",
       slug: "garden",
-      ownerClerkId: "owner",
+      ownerClerkId: t.users.owner.id,
       plan: "basic",
     });
     await ctx.db.insert("teamMembers", {
       teamId,
-      userClerkId: "owner",
+      userClerkId: t.users.owner.id,
       userEmail: "owner@example.com",
       userName: "Owner",
       role: "owner",
@@ -1343,7 +1342,7 @@ test("failure after Mux promotion stays retryable as the latest version", async 
     });
     const v1 = await ctx.db.insert("videos", {
       projectId,
-      uploadedByClerkId: "owner",
+      uploadedByClerkId: t.users.owner.id,
       uploaderName: "Owner",
       title: "Cut",
       visibility: "public",
@@ -1356,7 +1355,7 @@ test("failure after Mux promotion stays retryable as the latest version", async 
   const { videoId: v2 } = await t.run((ctx) =>
     createVersionRecord(ctx, {
       sourceVideoId: seeded.v1,
-      uploadedByClerkId: "owner",
+      uploadedByClerkId: t.users.owner.id,
       uploaderName: "Owner",
       publicId: "retryable-v2",
     }),
@@ -1387,18 +1386,18 @@ test("failure after Mux promotion stays retryable as the latest version", async 
   });
 
   const listed = await t
-    .withIdentity({ subject: "owner" })
+    .withIdentity(t.users.owner.identity)
     .query(api.videos.list, { projectId: seeded.projectId, paginationOpts: testPagination });
   expect(listed.page.map((video) => video._id)).toEqual([v2]);
 });
 
 test("abandoned upload with a Mux asset exercises the kept-as-failed branch", async () => {
-  const t = convexTest(schema, modules);
+  const t = await createTestBackend(modules);
   const videoId = await t.run(async (ctx) => {
     const teamId = await ctx.db.insert("teams", {
       name: "Garden",
       slug: "garden",
-      ownerClerkId: "owner",
+      ownerClerkId: t.users.owner.id,
       plan: "basic",
     });
     const projectId = await ctx.db.insert("projects", {
@@ -1407,7 +1406,7 @@ test("abandoned upload with a Mux asset exercises the kept-as-failed branch", as
     });
     const v1 = await ctx.db.insert("videos", {
       projectId,
-      uploadedByClerkId: "owner",
+      uploadedByClerkId: t.users.owner.id,
       uploaderName: "Owner",
       title: "Cut",
       visibility: "public",
@@ -1419,7 +1418,7 @@ test("abandoned upload with a Mux asset exercises the kept-as-failed branch", as
     await ctx.db.patch(v1, { versionStackId: v1 });
     const v2 = await ctx.db.insert("videos", {
       projectId,
-      uploadedByClerkId: "owner",
+      uploadedByClerkId: t.users.owner.id,
       uploaderName: "Owner",
       title: "Cut",
       visibility: "public",
@@ -1451,12 +1450,12 @@ test("abandoned upload with a Mux asset exercises the kept-as-failed branch", as
 });
 
 test("stale provisional versions roll back even before storage is initiated", async () => {
-  const t = convexTest(schema, modules);
+  const t = await createTestBackend(modules);
   const seeded = await t.run(async (ctx) => {
     const teamId = await ctx.db.insert("teams", {
       name: "Garden",
       slug: "garden",
-      ownerClerkId: "owner",
+      ownerClerkId: t.users.owner.id,
       plan: "basic",
     });
     const projectId = await ctx.db.insert("projects", {
@@ -1465,7 +1464,7 @@ test("stale provisional versions roll back even before storage is initiated", as
     });
     const v1 = await ctx.db.insert("videos", {
       projectId,
-      uploadedByClerkId: "owner",
+      uploadedByClerkId: t.users.owner.id,
       uploaderName: "Owner",
       title: "Cut",
       visibility: "public",
@@ -1478,7 +1477,7 @@ test("stale provisional versions roll back even before storage is initiated", as
   const { videoId: v2 } = await t.run((ctx) =>
     createVersionRecord(ctx, {
       sourceVideoId: seeded.v1,
-      uploadedByClerkId: "owner",
+      uploadedByClerkId: t.users.owner.id,
       uploaderName: "Owner",
       publicId: "stale-v2",
     }),
@@ -1502,17 +1501,17 @@ test("stale provisional versions roll back even before storage is initiated", as
 });
 
 test("concurrent version creation serializes into one ordered chain", async () => {
-  const t = convexTest(schema, modules);
+  const t = await createTestBackend(modules);
   const seeded = await t.run(async (ctx) => {
     const teamId = await ctx.db.insert("teams", {
       name: "Garden",
       slug: "garden",
-      ownerClerkId: "owner",
+      ownerClerkId: t.users.owner.id,
       plan: "basic",
     });
     await ctx.db.insert("teamMembers", {
       teamId,
-      userClerkId: "owner",
+      userClerkId: t.users.owner.id,
       userEmail: "owner@example.com",
       userName: "Owner",
       role: "owner",
@@ -1523,7 +1522,7 @@ test("concurrent version creation serializes into one ordered chain", async () =
     });
     const v1 = await ctx.db.insert("videos", {
       projectId,
-      uploadedByClerkId: "owner",
+      uploadedByClerkId: t.users.owner.id,
       uploaderName: "Owner",
       title: "Cut",
       visibility: "public",
@@ -1538,7 +1537,7 @@ test("concurrent version creation serializes into one ordered chain", async () =
     t.run((ctx) =>
       createVersionRecord(ctx, {
         sourceVideoId: seeded.v1,
-        uploadedByClerkId: "owner",
+        uploadedByClerkId: t.users.owner.id,
         uploaderName: "Owner",
         publicId: "concurrent-a",
       }),
@@ -1546,7 +1545,7 @@ test("concurrent version creation serializes into one ordered chain", async () =
     t.run((ctx) =>
       createVersionRecord(ctx, {
         sourceVideoId: seeded.v1,
-        uploadedByClerkId: "owner",
+        uploadedByClerkId: t.users.owner.id,
         uploaderName: "Owner",
         publicId: "concurrent-b",
       }),
@@ -1554,7 +1553,7 @@ test("concurrent version creation serializes into one ordered chain", async () =
   ]);
 
   const versions = await t
-    .withIdentity({ subject: "owner" })
+    .withIdentity(t.users.owner.identity)
     .query(api.videos.listVersions, { videoId: seeded.v1 });
   expect(versions.map((version) => version.versionNumber)).toEqual([3, 2, 1]);
 
@@ -1572,17 +1571,17 @@ test("concurrent version creation serializes into one ordered chain", async () =
 });
 
 test("concurrent version creation and deletion preserve a contiguous chain", async () => {
-  const t = convexTest(schema, modules);
+  const t = await createTestBackend(modules);
   const seeded = await t.run(async (ctx) => {
     const teamId = await ctx.db.insert("teams", {
       name: "Garden",
       slug: "garden",
-      ownerClerkId: "owner",
+      ownerClerkId: t.users.owner.id,
       plan: "basic",
     });
     await ctx.db.insert("teamMembers", {
       teamId,
-      userClerkId: "owner",
+      userClerkId: t.users.owner.id,
       userEmail: "owner@example.com",
       userName: "Owner",
       role: "owner",
@@ -1593,7 +1592,7 @@ test("concurrent version creation and deletion preserve a contiguous chain", asy
     });
     const v1 = await ctx.db.insert("videos", {
       projectId,
-      uploadedByClerkId: "owner",
+      uploadedByClerkId: t.users.owner.id,
       uploaderName: "Owner",
       title: "Cut",
       visibility: "public",
@@ -1606,7 +1605,7 @@ test("concurrent version creation and deletion preserve a contiguous chain", asy
   const { videoId: v2 } = await t.run((ctx) =>
     createVersionRecord(ctx, {
       sourceVideoId: seeded.v1,
-      uploadedByClerkId: "owner",
+      uploadedByClerkId: t.users.owner.id,
       uploaderName: "Owner",
       publicId: "concurrent-delete-v2",
     }),
@@ -1614,7 +1613,7 @@ test("concurrent version creation and deletion preserve a contiguous chain", asy
   await t.run((ctx) =>
     createVersionRecord(ctx, {
       sourceVideoId: v2,
-      uploadedByClerkId: "owner",
+      uploadedByClerkId: t.users.owner.id,
       uploaderName: "Owner",
       publicId: "concurrent-delete-v3",
     }),
@@ -1624,18 +1623,18 @@ test("concurrent version creation and deletion preserve a contiguous chain", asy
     t.run((ctx) =>
       createVersionRecord(ctx, {
         sourceVideoId: seeded.v1,
-        uploadedByClerkId: "owner",
+        uploadedByClerkId: t.users.owner.id,
         uploaderName: "Owner",
         publicId: "concurrent-delete-v4",
       }),
     ),
-    t.withIdentity({ subject: "owner" }).mutation(api.videos.remove, {
+    t.withIdentity(t.users.owner.identity).mutation(api.videos.remove, {
       videoId: v2,
     }),
   ]);
 
   const versions = await t
-    .withIdentity({ subject: "owner" })
+    .withIdentity(t.users.owner.identity)
     .query(api.videos.listVersions, { videoId: created.videoId });
   expect(versions.map((version) => version.versionNumber)).toEqual([3, 2, 1]);
   expect(versions.map((version) => version._id)).toContain(created.videoId);
@@ -1643,17 +1642,17 @@ test("concurrent version creation and deletion preserve a contiguous chain", asy
 });
 
 test("version stack operations enforce the explicit stack limit", async () => {
-  const t = convexTest(schema, modules);
+  const t = await createTestBackend(modules);
   const seeded = await t.run(async (ctx) => {
     const teamId = await ctx.db.insert("teams", {
       name: "Garden",
       slug: "garden",
-      ownerClerkId: "owner",
+      ownerClerkId: t.users.owner.id,
       plan: "basic",
     });
     await ctx.db.insert("teamMembers", {
       teamId,
-      userClerkId: "owner",
+      userClerkId: t.users.owner.id,
       userEmail: "owner@example.com",
       userName: "Owner",
       role: "owner",
@@ -1664,7 +1663,7 @@ test("version stack operations enforce the explicit stack limit", async () => {
     });
     const v1 = await ctx.db.insert("videos", {
       projectId,
-      uploadedByClerkId: "owner",
+      uploadedByClerkId: t.users.owner.id,
       uploaderName: "Owner",
       title: "Cut",
       visibility: "public",
@@ -1679,7 +1678,7 @@ test("version stack operations enforce the explicit stack limit", async () => {
     for (let versionNumber = 2; versionNumber <= MAX_VIDEO_STACK_SIZE; versionNumber += 1) {
       const videoId = await ctx.db.insert("videos", {
         projectId,
-        uploadedByClerkId: "owner",
+        uploadedByClerkId: t.users.owner.id,
         uploaderName: "Owner",
         title: "Cut",
         visibility: "public",
@@ -1697,7 +1696,7 @@ test("version stack operations enforce the explicit stack limit", async () => {
   });
 
   const versions = await t
-    .withIdentity({ subject: "owner" })
+    .withIdentity(t.users.owner.identity)
     .query(api.videos.listVersions, { videoId: seeded.v1 });
   expect(versions).toHaveLength(MAX_VIDEO_STACK_SIZE);
 
@@ -1705,7 +1704,7 @@ test("version stack operations enforce the explicit stack limit", async () => {
     t.run((ctx) =>
       createVersionRecord(ctx, {
         sourceVideoId: seeded.v1,
-        uploadedByClerkId: "owner",
+        uploadedByClerkId: t.users.owner.id,
         uploaderName: "Owner",
         publicId: "limit-overflow",
       }),
@@ -1715,7 +1714,7 @@ test("version stack operations enforce the explicit stack limit", async () => {
   const overflowId = await t.run(async (ctx) => {
     const videoId = await ctx.db.insert("videos", {
       projectId: seeded.projectId,
-      uploadedByClerkId: "owner",
+      uploadedByClerkId: t.users.owner.id,
       uploaderName: "Owner",
       title: "Cut",
       visibility: "public",
@@ -1729,7 +1728,7 @@ test("version stack operations enforce the explicit stack limit", async () => {
     return videoId;
   });
 
-  const authed = t.withIdentity({ subject: "owner" });
+  const authed = t.withIdentity(t.users.owner.identity);
   await expect(authed.query(api.videos.listVersions, { videoId: overflowId })).rejects.toThrow(
     `at most ${MAX_VIDEO_STACK_SIZE} versions`,
   );

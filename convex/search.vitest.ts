@@ -1,19 +1,18 @@
 /// <reference types="vite/client" />
 
-import { convexTest } from "convex-test";
 import migrationsTest from "@convex-dev/migrations/test";
 import { expect, test, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { triggers } from "./functions";
-import schema from "./schema";
+import { createTestBackend } from "./test.setup";
 
 const modules = import.meta.glob("./**/*.ts");
 
-function videoFields(projectId: Id<"projects">, title: string) {
+function videoFields(projectId: Id<"projects">, title: string, uploadedByClerkId: Id<"users">) {
   return {
     projectId,
-    uploadedByClerkId: "owner",
+    uploadedByClerkId,
     uploaderName: "Owner",
     title,
     visibility: "public" as const,
@@ -25,18 +24,18 @@ function videoFields(projectId: Id<"projects">, title: string) {
 
 // Seeds through the trigger-wrapped db, like real mutations do.
 async function seed() {
-  const t = convexTest(schema, modules);
+  const t = await createTestBackend(modules);
   const ids = await t.run(async (rawCtx) => {
     const ctx = triggers.wrapDB(rawCtx);
     const teamId = await ctx.db.insert("teams", {
       name: "Garden",
       slug: "garden",
-      ownerClerkId: "owner",
+      ownerClerkId: t.users.owner.id,
       plan: "basic",
     });
     await ctx.db.insert("teamMembers", {
       teamId,
-      userClerkId: "owner",
+      userClerkId: t.users.owner.id,
       userEmail: "owner@example.com",
       userName: "Owner",
       role: "owner",
@@ -44,7 +43,7 @@ async function seed() {
     const otherTeamId = await ctx.db.insert("teams", {
       name: "Other",
       slug: "other",
-      ownerClerkId: "stranger",
+      ownerClerkId: t.users.stranger.id,
       plan: "basic",
     });
 
@@ -54,17 +53,26 @@ async function seed() {
       name: "Edits",
       parentId: campaignId,
     });
-    const finalCutId = await ctx.db.insert("videos", videoFields(editsId, "FinalCut_v2.mp4"));
-    const cafeId = await ctx.db.insert("videos", videoFields(campaignId, "Café interview"));
+    const finalCutId = await ctx.db.insert(
+      "videos",
+      videoFields(editsId, "FinalCut_v2.mp4", t.users.owner.id),
+    );
+    const cafeId = await ctx.db.insert(
+      "videos",
+      videoFields(campaignId, "Café interview", t.users.owner.id),
+    );
     const otherProjectId = await ctx.db.insert("projects", {
       teamId: otherTeamId,
       name: "Final secret",
     });
-    await ctx.db.insert("videos", videoFields(otherProjectId, "Final secret cut"));
+    await ctx.db.insert(
+      "videos",
+      videoFields(otherProjectId, "Final secret cut", t.users.owner.id),
+    );
 
     return { teamId, campaignId, editsId, finalCutId, cafeId };
   });
-  const owner = t.withIdentity({ subject: "owner", email: "owner@example.com", name: "Owner" });
+  const owner = t.withIdentity(t.users.owner.identity);
   return { t, owner, ...ids };
 }
 
@@ -141,7 +149,7 @@ test("only the latest version of a stack is searchable", async () => {
   const latestId = await t.run(async (rawCtx) => {
     const ctx = triggers.wrapDB(rawCtx);
     const latestId = await ctx.db.insert("videos", {
-      ...videoFields(editsId, "FinalCut_v2.mp4"),
+      ...videoFields(editsId, "FinalCut_v2.mp4", t.users.owner.id),
       publicId: "final-v2",
       versionStackId: finalCutId,
       versionNumber: 2,
@@ -174,26 +182,26 @@ test("migrations index rows written before the triggers existed", async () => {
 });
 
 async function backfillIndexesExistingRows() {
-  const t = convexTest(schema, modules);
+  const t = await createTestBackend(modules);
   migrationsTest.register(t);
   await t.run(async (ctx) => {
     const teamId = await ctx.db.insert("teams", {
       name: "Garden",
       slug: "garden",
-      ownerClerkId: "owner",
+      ownerClerkId: t.users.owner.id,
       plan: "basic",
     });
     await ctx.db.insert("teamMembers", {
       teamId,
-      userClerkId: "owner",
+      userClerkId: t.users.owner.id,
       userEmail: "owner@example.com",
       userName: "Owner",
       role: "owner",
     });
     const projectId = await ctx.db.insert("projects", { teamId, name: "Archive" });
-    await ctx.db.insert("videos", videoFields(projectId, "Old trailer"));
+    await ctx.db.insert("videos", videoFields(projectId, "Old trailer", t.users.owner.id));
   });
-  const owner = t.withIdentity({ subject: "owner" });
+  const owner = t.withIdentity(t.users.owner.identity);
   expect(await owner.query(api.search.search, { teamSlug: "garden", query: "trailer" })).toEqual(
     [],
   );

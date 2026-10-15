@@ -540,6 +540,18 @@ export default function VideoPage() {
   }, [checkMuxAssetStatus, resolvedVideoId, video?.muxAssetId, video?.status]);
 
   useEffect(() => {
+    if (!resolvedVideoId || !muxPlaybackId) return;
+    let attempt = 0;
+    const requestSession = () => {
+      attempt += 1;
+      setPlaybackRequest({ videoId: resolvedVideoId, playbackId: muxPlaybackId, attempt });
+    };
+    requestSession();
+    const refresh = window.setInterval(requestSession, 45 * 60 * 1000);
+    return () => window.clearInterval(refresh);
+  }, [resolvedVideoId, muxPlaybackId]);
+
+  useEffect(() => {
     if (
       !resolvedVideoId ||
       !muxPlaybackId ||
@@ -1375,7 +1387,7 @@ export default function VideoPage() {
               sourceRevision={activeQualityId === "mux720" ? (muxPlaybackSource?.revision ?? 0) : 0}
               initialTime={activePlaybackResume?.currentTime}
               initialPlay={activePlaybackResume?.wasPlaying}
-              poster={muxPlaybackSource?.posterUrl ?? video.thumbnailUrl}
+              poster={muxPlaybackSource?.posterUrl}
               comments={comments || []}
               onTimeUpdate={handleTimeUpdate}
               onMarkerClick={handleMarkerClick}

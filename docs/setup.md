@@ -1,49 +1,21 @@
-# Setup
+# Develop against the local installation
 
-## Development
+Install Bun 1.4.x, Docker Compose, FFmpeg with FFprobe, and Tailscale. This checkout uses the persistent local stack described in [deployment](deployment.md).
 
-Install dependencies:
+Install dependencies with `bun install --frozen-lockfile`. Copy `.env.example` to `.env.local` only for a new checkout; preserve existing credentials on this installation. Configure the local backend URL and deployment admin key, plus browser-accessible Tailscale API and site URLs.
 
-```bash
-bun install
-```
+Run `bun run dev` to deploy backend changes and start Vite on loopback port 5298. The production app remains on port 5296. If testing browser uploads from a different origin, add that exact origin to SeaweedFS CORS configuration and restart storage. Local development needs access to the configured Tailscale endpoints.
 
-Run app + Convex locally:
-
-```bash
-bun run dev
-```
-
-Run only the web app:
-
-```bash
-bun run dev:web
-```
-
-## Build / Run
-
-```bash
-bun run build
-bun run start
-```
-
-## Quality checks
+Run these checks before updating production:
 
 ```bash
 bun run typecheck
 bun run lint
+bun test
+bun run test:convex
+bun run build
 ```
 
-## Environment variables
+Backend tests use real local auth user/session fixtures through `convex-test`. Media tests run FFmpeg, exercise signed segments, and verify the durable queue. The frontend retains the upstream design.
 
-Copy `.env.example` to `.env.local` and fill it in — it lists every variable,
-grouped by section (convex, clerk, stripe, mux, storage, autumn, chunkify).
-
-- Root `.env.example` — local dev env (client `VITE_*` vars + secrets that
-  `bun run dev` seeds into the local Convex deployment).
-- `convex/.env.example` — the Convex **deployment** env vars to set in the
-  dashboard or via `npx convex env set` for cloud/prod.
-
-Stripe webhook endpoint (for the Convex Stripe component):
-
-- `https://<your-deployment>.convex.site/stripe/webhook`
+Use [account management](deployment.md#manage-accounts) to provision users. No hosted-service test keys are needed.

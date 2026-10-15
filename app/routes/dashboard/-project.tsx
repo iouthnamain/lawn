@@ -1,3 +1,4 @@
+import { VideoThumbnail } from "@/components/videos/VideoThumbnail";
 import { useAction, useConvex, useMutation, useQuery } from "convex/react";
 import { api } from "@convex/_generated/api";
 import { useLocation, useNavigate } from "@tanstack/react-router";
@@ -84,7 +85,6 @@ const viewModeOptions = [
 type ViewMode = (typeof viewModeOptions)[number]["value"];
 const PROJECT_PRESENCE_VIDEO_LIMIT = 40;
 const PROJECT_PRESENCE_ROOT_MARGIN_PX = 480;
-const PROJECT_THUMBNAIL_WIDTH_PX = 640;
 const EAGER_THUMBNAIL_COUNT = 5;
 
 type ShareToastState = {
@@ -320,21 +320,6 @@ function useProjectPresenceViewport(
   };
 }
 
-export function getProjectThumbnailUrl(thumbnailUrl?: string) {
-  if (!thumbnailUrl?.startsWith("http")) return undefined;
-
-  try {
-    const url = new URL(thumbnailUrl);
-    if (url.hostname !== "image.mux.com") return thumbnailUrl;
-    if (url.searchParams.has("token")) return thumbnailUrl;
-
-    url.searchParams.set("width", String(PROJECT_THUMBNAIL_WIDTH_PX));
-    return url.toString();
-  } catch {
-    return undefined;
-  }
-}
-
 type VideoIntentTargetProps = {
   className: string;
   teamSlug: string;
@@ -496,10 +481,6 @@ export default function ProjectPage({
     presenceLayoutKey,
   );
   const presenceVideoIdSet = useMemo(() => new Set(presenceVideoIds), [presenceVideoIds]);
-  const thumbnailUrls = useMemo(
-    () => new Map(videos?.map((video) => [video._id, getProjectThumbnailUrl(video.thumbnailUrl)])),
-    [videos],
-  );
   const projectPresenceCounts = useQuery(
     api.videoPresence.listProjectOnlineCounts,
     resolvedProjectId && presenceVideoIds.length > 0
@@ -925,7 +906,6 @@ export default function ProjectPage({
           >
             <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
               {videos?.map((video, index) => {
-                const thumbnailSrc = thumbnailUrls.get(video._id);
                 const shouldEagerLoadThumbnail = index < EAGER_THUMBNAIL_COUNT;
                 const canDownload =
                   Boolean(video.s3Key) && video.status !== "failed" && video.status !== "uploading";
@@ -968,21 +948,20 @@ export default function ProjectPage({
                           : "shadow-[4px_4px_0px_0px_var(--shadow-color)] group-hover:shadow-[2px_2px_0px_0px_var(--shadow-color)]",
                       )}
                     >
-                      {thumbnailSrc ? (
-                        <img
-                          src={thumbnailSrc}
-                          alt={video.title}
-                          draggable={false}
-                          loading={shouldEagerLoadThumbnail ? "eager" : "lazy"}
-                          decoding="async"
-                          fetchPriority={index === 0 ? "high" : "auto"}
-                          className="h-full w-full object-cover"
-                        />
-                      ) : (
-                        <div className="absolute inset-0 flex items-center justify-center">
-                          <Play className="h-10 w-10 text-[#888]" />
-                        </div>
-                      )}
+                      <VideoThumbnail
+                        videoId={video._id}
+                        fallback={
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <Play className="h-10 w-10 text-[#888]" />
+                          </div>
+                        }
+                        alt={video.title}
+                        draggable={false}
+                        loading={shouldEagerLoadThumbnail ? "eager" : "lazy"}
+                        decoding="async"
+                        fetchPriority={index === 0 ? "high" : "auto"}
+                        className="h-full w-full object-cover"
+                      />
                       {video.status === "ready" && video.duration && (
                         <div className="absolute right-2 bottom-2 bg-black/70 px-1.5 py-0.5 font-mono text-[11px] text-white">
                           {formatDuration(video.duration)}
@@ -1128,7 +1107,6 @@ export default function ProjectPage({
             )}
           >
             {videos?.map((video, index) => {
-              const thumbnailSrc = thumbnailUrls.get(video._id);
               const shouldEagerLoadThumbnail = index < EAGER_THUMBNAIL_COUNT;
               const canDownload =
                 Boolean(video.s3Key) && video.status !== "failed" && video.status !== "uploading";
@@ -1172,21 +1150,20 @@ export default function ProjectPage({
                         : "shadow-[4px_4px_0px_0px_var(--shadow-color)] group-hover:shadow-[2px_2px_0px_0px_var(--shadow-color)]",
                     )}
                   >
-                    {thumbnailSrc ? (
-                      <img
-                        src={thumbnailSrc}
-                        alt={video.title}
-                        draggable={false}
-                        loading={shouldEagerLoadThumbnail ? "eager" : "lazy"}
-                        decoding="async"
-                        fetchPriority={index === 0 ? "high" : "auto"}
-                        className="h-full w-full object-cover"
-                      />
-                    ) : (
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        <Play className="h-6 w-6 text-[#888]" />
-                      </div>
-                    )}
+                    <VideoThumbnail
+                      videoId={video._id}
+                      fallback={
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <Play className="h-6 w-6 text-[#888]" />
+                        </div>
+                      }
+                      alt={video.title}
+                      draggable={false}
+                      loading={shouldEagerLoadThumbnail ? "eager" : "lazy"}
+                      decoding="async"
+                      fetchPriority={index === 0 ? "high" : "auto"}
+                      className="h-full w-full object-cover"
+                    />
                     {video.status !== "ready" && (
                       <div className="absolute inset-0 flex items-center justify-center bg-black/60">
                         <span className="text-[10px] font-bold tracking-wider text-white uppercase">

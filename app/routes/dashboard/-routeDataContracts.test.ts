@@ -8,7 +8,7 @@ import { getProjectEssentialSpecs } from "./-project.data";
 import { getSettingsEssentialSpecs } from "./-settings.data";
 import { getTeamEssentialSpecs } from "./-team.data";
 import { getVideoEssentialSpecs, threadComments } from "./-video.data";
-import { getProjectThumbnailUrl, selectProjectPresenceVideoIds } from "./-project";
+import { selectProjectPresenceVideoIds } from "./-project";
 
 function names(specs: Array<{ query: unknown }>) {
   return specs.map((spec) => getFunctionName(spec.query as never)).sort();
@@ -65,24 +65,10 @@ test("video comments are threaded with stable timeline and reply ordering", () =
   );
 });
 
-test("project thumbnails preserve signed Mux URLs and resize public Mux images", () => {
-  const signedThumbnailUrl =
-    "https://image.mux.com/playback-id/thumbnail.jpg?time=0&token=signed-token";
-  assert.equal(getProjectThumbnailUrl(signedThumbnailUrl), signedThumbnailUrl);
-
-  const thumbnailUrl = getProjectThumbnailUrl(
-    "https://image.mux.com/playback-id/thumbnail.jpg?time=0&fit_mode=preserve",
-  );
-  assert.ok(thumbnailUrl);
-  const parsed = new URL(thumbnailUrl);
-
-  assert.equal(parsed.searchParams.get("width"), "640");
-  assert.equal(parsed.searchParams.get("time"), "0");
-  assert.equal(parsed.searchParams.get("fit_mode"), "preserve");
-  assert.equal(
-    getProjectThumbnailUrl("https://cdn.example.com/poster.jpg"),
-    "https://cdn.example.com/poster.jpg",
-  );
+test("project thumbnails use authorized refreshable media sessions", () => {
+  const route = readFileSync(new URL("./-project.tsx", import.meta.url), "utf8");
+  assert.equal(route.match(/<VideoThumbnail/g)?.length, 2);
+  assert.equal(route.includes("video.thumbnailUrl"), false);
 });
 
 test("project presence selection stays bounded and follows the viewport", () => {

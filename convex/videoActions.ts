@@ -15,10 +15,11 @@ import {
   buildMuxPlaybackUrl,
   buildMuxThumbnailUrl,
   createMuxAssetFromInputUrl,
-  createPublicPlaybackId,
+  deleteMuxAsset,
   getMuxAsset,
 } from "./mux";
 import { BUCKET_NAME, getS3Client } from "./s3";
+import { reclaimVideoFiles } from "./videoDeletion";
 import {
   abortMultipartUploadSession,
   completeMultipartUploadSession,
@@ -283,46 +284,11 @@ async function deleteUploadedObject(key: string) {
   );
 }
 
-function buildPublicPlaybackSession(playbackId: string): { url: string; posterUrl: string } {
+function buildPlaybackSession(playbackId: string): { url: string; posterUrl: string } {
   return {
     url: buildMuxPlaybackUrl(playbackId),
     posterUrl: buildMuxThumbnailUrl(playbackId),
   };
-}
-
-async function ensurePublicPlaybackId(
-  ctx: ActionCtx,
-  params: {
-    videoId?: Id<"videos">;
-    muxAssetId?: string | null;
-    muxPlaybackId: string;
-  },
-): Promise<string> {
-  const { videoId, muxAssetId, muxPlaybackId } = params;
-  if (!muxAssetId) return muxPlaybackId;
-
-  const asset = await getMuxAsset(muxAssetId);
-  const playbackIds = (asset.playback_ids ?? []) as Array<{
-    id?: string;
-    policy?: string;
-  }>;
-
-  let publicPlaybackId = playbackIds.find((entry) => entry.policy === "public" && entry.id)?.id;
-  if (!publicPlaybackId) {
-    const created = await createPublicPlaybackId(muxAssetId);
-    publicPlaybackId = created.id;
-  }
-
-  const resolvedPlaybackId = publicPlaybackId ?? muxPlaybackId;
-  if (videoId && resolvedPlaybackId !== muxPlaybackId) {
-    await ctx.runMutation(internal.videos.setMuxPlaybackId, {
-      videoId,
-      muxPlaybackId: resolvedPlaybackId,
-      thumbnailUrl: buildMuxThumbnailUrl(resolvedPlaybackId),
-    });
-  }
-
-  return resolvedPlaybackId;
 }
 
 async function reconcileMuxAssetStatus(
@@ -347,7 +313,7 @@ async function reconcileMuxAssetStatus(
   if (asset.status === "errored") {
     const uploadError =
       asset.errors?.messages?.find((message) => message.length > 0) ??
-      "Mux failed to process this asset.";
+      "Local encoder failed to process this asset.";
     const updated = await ctx.runMutation(internal.videos.markMuxAssetAsFailed, {
       videoId: params.videoId,
       muxAssetId: params.muxAssetId,
@@ -358,21 +324,15 @@ async function reconcileMuxAssetStatus(
     };
   }
 
-  let playbackId = asset.playback_ids?.find((entry) => entry.policy === "public" && entry.id)?.id;
-  if (!playbackId) {
-    const created = await createPublicPlaybackId(params.muxAssetId);
-    playbackId = created.id;
-  }
-  if (!playbackId) {
-    throw new Error("Mux asset is ready but has no public playback ID.");
-  }
+  const playbackId = asset.playback_ids.find((entry) => entry.policy === "signed")?.id;
+  if (!playbackId) throw new Error("Local asset is ready but has no playback ID.");
 
   const updated = await ctx.runMutation(internal.videos.markAsReady, {
     videoId: params.videoId,
     muxAssetId: params.muxAssetId,
     muxPlaybackId: playbackId,
     duration: asset.duration,
-    thumbnailUrl: buildMuxThumbnailUrl(playbackId),
+    // Signed thumbnails are fetched on demand rather than stored after they expire.
   });
   return {
     status: updated ? ("ready" as const) : ("skipped" as const),
@@ -826,7 +786,7 @@ export const markUploadComplete = action({
       const uploadError =
         shouldDeleteObject && error instanceof Error
           ? error.message
-          : "Mux ingest failed after upload.";
+          : "Local video processing could not start after upload.";
       if (shouldDeleteObject) {
         await ctx.runMutation(internal.videos.finalizeAbandonedUpload, {
           videoId: args.videoId,
@@ -838,7 +798,9 @@ export const markUploadComplete = action({
         videoId: args.videoId,
         uploadError,
       });
-      throw new Error("Mux ingest failed after upload. Retry processing without re-uploading.");
+      throw new Error(
+        "Local video processing could not start after upload. Retry processing without re-uploading.",
+      );
     }
 
     return { success: true };
@@ -870,7 +832,7 @@ export const markUploadFailed = action({
 
     await ctx.runMutation(internal.videos.finalizeAbandonedUpload, {
       videoId: args.videoId,
-      uploadError: "Upload failed before Mux could process the asset.",
+      uploadError: "Upload failed before the local encoder could process the asset.",
     });
 
     return { success: true };
@@ -1044,12 +1006,8 @@ export const getPlaybackSession = action({
       throw new Error("Video not found or not ready");
     }
 
-    const playbackId = await ensurePublicPlaybackId(ctx, {
-      videoId: args.videoId,
-      muxAssetId: video.muxAssetId,
-      muxPlaybackId: video.muxPlaybackId,
-    });
-    return buildPublicPlaybackSession(playbackId);
+    const playbackId = video.muxPlaybackId;
+    return buildPlaybackSession(playbackId);
   },
 });
 
@@ -1067,12 +1025,8 @@ export const getPlaybackUrl = action({
       throw new Error("Video not found or not ready");
     }
 
-    const playbackId = await ensurePublicPlaybackId(ctx, {
-      videoId: args.videoId,
-      muxAssetId: video.muxAssetId,
-      muxPlaybackId: video.muxPlaybackId,
-    });
-    const session = buildPublicPlaybackSession(playbackId);
+    const playbackId = video.muxPlaybackId;
+    const session = buildPlaybackSession(playbackId);
     return { url: session.url };
   },
 });
@@ -1118,12 +1072,8 @@ export const getPublicPlaybackSession = action({
       throw new Error("Video not found or not ready");
     }
 
-    const playbackId = await ensurePublicPlaybackId(ctx, {
-      videoId: result.video._id,
-      muxAssetId: result.video.muxAssetId,
-      muxPlaybackId: result.video.muxPlaybackId,
-    });
-    return buildPublicPlaybackSession(playbackId);
+    const playbackId = result.video.muxPlaybackId;
+    return buildPlaybackSession(playbackId);
   },
 });
 
@@ -1142,12 +1092,8 @@ export const getSharedPlaybackSession = action({
       throw new Error("Video not found or not ready");
     }
 
-    const playbackId = await ensurePublicPlaybackId(ctx, {
-      videoId: result.video._id,
-      muxAssetId: result.video.muxAssetId,
-      muxPlaybackId: result.video.muxPlaybackId,
-    });
-    return buildPublicPlaybackSession(playbackId);
+    const playbackId = result.video.muxPlaybackId;
+    return buildPlaybackSession(playbackId);
   },
 });
 
@@ -1245,5 +1191,62 @@ export const getSharedDownloadUrl = action({
       title: result.video.title,
       contentType: result.video.contentType,
     });
+  },
+});
+
+// Each result follows the same membership and hidden-version rules as playback.
+export const getThumbnailUrls = action({
+  args: { videoIds: v.array(v.id("videos")) },
+  returns: v.array(v.object({ videoId: v.id("videos"), url: v.string() })),
+  handler: async (ctx, args): Promise<Array<{ videoId: Id<"videos">; url: string }>> => {
+    if (args.videoIds.length > 100) throw new Error("At most 100 thumbnails per request");
+    const thumbnails: Array<{ videoId: Id<"videos">; url: string }> = [];
+    for (const videoId of new Set(args.videoIds)) {
+      const video = await ctx.runQuery(api.videos.getVideoForPlayback, { videoId });
+      if (video?.status === "ready" && video.muxPlaybackId)
+        thumbnails.push({ videoId, url: buildMuxThumbnailUrl(video.muxPlaybackId) });
+    }
+    return thumbnails;
+  },
+});
+
+export const deleteLocalMediaAsset = internalAction({
+  args: {
+    assetId: v.optional(v.string()),
+    s3Key: v.optional(v.string()),
+    multipartUploadId: v.optional(v.string()),
+    recheckOriginal: v.optional(v.boolean()),
+    attempt: v.optional(v.number()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args): Promise<null> => {
+    const remaining = await reclaimVideoFiles(args, {
+      deleteAsset: deleteMuxAsset,
+      abortMultipart: (key, uploadId) =>
+        abortMultipartUploadSession({ key: normalizeBucketKey(key), uploadId }),
+      deleteOriginal: (key) => deleteUploadedObject(normalizeBucketKey(key)),
+    });
+    if (remaining.assetId || remaining.s3Key) {
+      const attempt = (args.attempt ?? 0) + 1;
+      console.error("Video file deletion deferred", {
+        attempt,
+        encoded: Boolean(remaining.assetId),
+        original: Boolean(remaining.s3Key),
+      });
+      await ctx.scheduler.runAfter(
+        Math.min(60_000 * 2 ** Math.min(attempt, 6), 3_600_000),
+        internal.videoActions.deleteLocalMediaAsset,
+        { ...remaining, attempt },
+      );
+    }
+    if (args.recheckOriginal && args.s3Key && !remaining.s3Key) {
+      // A previously signed PUT can finish after deletion; sweep again once its URL expires.
+      await ctx.scheduler.runAfter(
+        (PRESIGN_SINGLE_PUT_EXPIRES_SEC + 60) * 1000,
+        internal.videoActions.deleteLocalMediaAsset,
+        { s3Key: args.s3Key },
+      );
+    }
+    return null;
   },
 });

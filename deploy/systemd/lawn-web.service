@@ -1,0 +1,22 @@
+[Unit]
+Description=lawn-web
+Requires=lawn-stack.service run-media-ina-labb\x2ddata-apps-lawn\x2dstate.mount
+After=lawn-stack.service run-media-ina-labb\x2ddata-apps-lawn\x2dstate.mount tailscaled.service
+PartOf=lawn-stack.service
+
+[Service]
+User=ina
+Group=ina
+WorkingDirectory=/run/media/ina/labb-data/apps/lawn
+EnvironmentFile=/run/media/ina/labb-data/apps/lawn/.env.selfhost
+Environment=PATH=/home/ina/.bun/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/home/ina/.bun/bin/bun run services/web.mjs
+Restart=on-failure
+RestartSec=5
+KillMode=control-group
+TimeoutStopSec=30
+UMask=0077
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target

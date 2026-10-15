@@ -1,0 +1,13 @@
+[Unit]
+Description=Lawn database filesystem on labb-data
+RequiresMountsFor=/run/media/ina/labb-data
+Before=lawn-stack.service
+
+[Mount]
+What=/run/media/ina/labb-data/apps/lawn-state.ext4
+Where=/run/media/ina/labb-data/apps/lawn-state
+Type=ext4
+Options=loop,noatime
+
+[Install]
+WantedBy=multi-user.target

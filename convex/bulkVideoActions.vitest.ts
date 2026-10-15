@@ -5,25 +5,25 @@ import { expect, test, vi } from "vitest";
 import { api } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 import { createVersionRecord, MAX_BULK_VIDEO_ACTION } from "./videos";
-import schema from "./schema";
+import { createTestBackend } from "./test.setup";
 
 const modules = import.meta.glob("./**/*.ts");
 
 type Role = "owner" | "admin" | "member" | "viewer";
 
 async function seed(role: Role = "admin") {
-  const t = convexTest(schema, modules);
+  const t = await createTestBackend(modules);
   const seeded = await t.run(async (ctx) => {
     const insertTeam = async (slug: string) => {
       const teamId = await ctx.db.insert("teams", {
         name: slug,
         slug,
-        ownerClerkId: "owner",
+        ownerClerkId: t.users.owner.id,
         plan: "basic",
       });
       await ctx.db.insert("teamMembers", {
         teamId,
-        userClerkId: "user_1",
+        userClerkId: t.users.user_1.id,
         userEmail: "user@example.com",
         userName: "User",
         role,
@@ -44,7 +44,7 @@ async function seed(role: Role = "admin") {
     const insertVideo = (publicId: string) =>
       ctx.db.insert("videos", {
         projectId: sourceProjectId,
-        uploadedByClerkId: "user_1",
+        uploadedByClerkId: t.users.user_1.id,
         uploaderName: "User",
         title: publicId,
         visibility: "public",
@@ -60,7 +60,7 @@ async function seed(role: Role = "admin") {
   const { videoId: a2 } = await t.run((ctx) =>
     createVersionRecord(ctx, {
       sourceVideoId: seeded.a1,
-      uploadedByClerkId: "user_1",
+      uploadedByClerkId: t.users.user_1.id,
       uploaderName: "User",
       publicId: "a2",
     }),
@@ -68,7 +68,7 @@ async function seed(role: Role = "admin") {
 
   return {
     t,
-    authed: t.withIdentity({ subject: "user_1" }),
+    authed: t.withIdentity(t.users.user_1.identity),
     ...seeded,
     a2,
     allIds: [seeded.a1, a2, seeded.b1],

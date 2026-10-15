@@ -1,4 +1,4 @@
-import { useAuth } from "@clerk/tanstack-react-start";
+import { useAuth } from "@/lib/auth";
 import { useConvex, useConvexAuth, useQuery } from "convex/react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api } from "@convex/_generated/api";

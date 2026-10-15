@@ -4,7 +4,7 @@ import { Command } from "cmdk";
 import { useConvex, useQuery } from "convex/react";
 import { useNavigate } from "@tanstack/react-router";
 import {
-  CreditCard,
+  HardDrive,
   Film,
   Folder,
   Home,
@@ -186,9 +186,9 @@ export function CommandPalette({ teamSlug, teamRole }: { teamSlug?: string; team
             ? [
                 {
                   id: "billing",
-                  label: "Billing",
-                  keywords: ["plan", "subscription", "upgrade", "invoice", "stripe"],
-                  icon: CreditCard,
+                  label: "Storage",
+                  keywords: ["storage", "disk", "usage", "quota"],
+                  icon: HardDrive,
                   run: () => go(teamSettingsPath(teamSlug), "billing"),
                 },
               ]

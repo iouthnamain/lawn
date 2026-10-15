@@ -6,16 +6,6 @@ export type MuxPlaybackRecovery = {
   revision: number;
 };
 
-export function buildMuxPlaybackHlsUrl(playbackId: string) {
-  const url = new URL(`https://stream.mux.com/${playbackId}.m3u8`);
-  url.searchParams.set("max_resolution", "720p");
-  return url.toString();
-}
-
-export function buildMuxPlaybackPosterUrl(playbackId: string) {
-  return `https://image.mux.com/${playbackId}/thumbnail.jpg?time=0`;
-}
-
 export function selectMuxPlaybackSource({
   scopeKey,
   playbackId,
@@ -35,31 +25,14 @@ export function selectMuxPlaybackSource({
     };
   }
 
-  return {
-    url: buildMuxPlaybackHlsUrl(playbackId),
-    posterUrl: buildMuxPlaybackPosterUrl(playbackId),
-    revision: 0,
-  };
+  return null;
 }
 
-const prefetchedPlaybackIds = new Set<string>();
 let hlsRuntimePromise: Promise<typeof import("hls.js")> | null = null;
 
 export function prefetchMuxPlaybackManifest(playbackId: string) {
-  if (typeof window === "undefined") return;
-  if (prefetchedPlaybackIds.has(playbackId)) return;
-  prefetchedPlaybackIds.add(playbackId);
-
-  const url = buildMuxPlaybackHlsUrl(playbackId);
-  fetch(url, {
-    method: "GET",
-    mode: "cors",
-    credentials: "omit",
-    cache: "force-cache",
-  }).catch(() => {
-    prefetchedPlaybackIds.delete(playbackId);
-    // Best effort only; route transitions should not depend on this.
-  });
+  void playbackId;
+  // An asset ID cannot grant playback. Authorized sessions supply signed URLs.
 }
 
 export function loadHlsRuntime() {

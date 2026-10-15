@@ -1,0 +1,58 @@
+name: lawn
+services:
+  backend:
+    image: ghcr.io/get-convex/convex-backend@sha256:d715e9ec088784407ca4ba2d3db592702cd328d02c76cdca3852c0018f2a76b4
+    restart: "no"
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
+    stop_signal: SIGINT
+    network_mode: host
+    command: ["--interface", "127.0.0.1"]
+    volumes:
+      - ../../lawn-state/convex:/convex/data
+    environment:
+      INSTANCE_NAME: ${INSTANCE_NAME}
+      INSTANCE_SECRET: ${INSTANCE_SECRET}
+      CONVEX_CLOUD_ORIGIN: ${CONVEX_CLOUD_ORIGIN}
+      CONVEX_SITE_ORIGIN: ${CONVEX_SITE_ORIGIN}
+      DISABLE_BEACON: "true"
+      RUST_LOG: warn
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3210/version"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+  storage:
+    image: chrislusf/seaweedfs@sha256:4e61d15fd35994cb1e43e1e553dff106794841fd9a99ade2fc8c8bfce4d7872d
+    restart: "no"
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
+    command:
+      [
+        "mini",
+        "-dir=/data",
+        "-s3.config=/etc/seaweed-s3.json",
+        "-s3.allowedOrigins=${LAWN_PUBLIC_URL}",
+        "-bucket=videos",
+        "-admin.ui=false",
+        "-webdav=false",
+        "-s3.port.iceberg=0",
+        "-s3.port.lance=0",
+        "-master.volumeSizeLimitMB=1024",
+        "-master.dir=/state",
+        "-volume.dir.idx=/state/index",
+        "-admin.dataDir=/state/admin",
+      ]
+    ports:
+      - "127.0.0.1:8333:8333"
+    volumes:
+      - ../../lawn-data/storage:/data
+      - ../../lawn-state/storage:/state
+      - ../.seaweed-s3.json:/etc/seaweed-s3.json:ro
+      - ./filer.toml:/etc/seaweedfs/filer.toml:ro

@@ -1,4 +1,5 @@
 import { defineSchema, defineTable } from "convex/server";
+import { authTables } from "@convex-dev/auth/server";
 import { v } from "convex/values";
 
 const searchEntryFields = {
@@ -12,6 +13,7 @@ const searchEntryFields = {
 };
 
 export default defineSchema({
+  ...authTables,
   teams: defineTable({
     name: v.string(),
     slug: v.string(),

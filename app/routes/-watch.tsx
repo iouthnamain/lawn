@@ -1,7 +1,7 @@
 import { useAction, useMutation } from "convex/react";
 import { api } from "@convex/_generated/api";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
-import { useUser } from "@clerk/tanstack-react-start";
+import { useUser } from "@/lib/auth";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { VideoPlayer, type VideoPlayerHandle } from "@/components/video-player/VideoPlayer";
 import { Button } from "@/components/ui/button";
@@ -109,6 +109,17 @@ export default function WatchPage() {
       };
     });
   }, [muxPlaybackId, playbackSource?.revision, publicId]);
+
+  useEffect(() => {
+    if (!muxPlaybackId) return;
+    const requestSession = () => {
+      setPlaybackRecoveryError(null);
+      setPlaybackRequest({ scopeKey: publicId, playbackId: muxPlaybackId, revision: Date.now() });
+    };
+    requestSession();
+    const refresh = window.setInterval(requestSession, 45 * 60 * 1000);
+    return () => window.clearInterval(refresh);
+  }, [publicId, muxPlaybackId]);
 
   const handlePlaybackIssue = useCallback(() => {
     if (!muxPlaybackId || !playbackSource || activePlaybackRequest) return;

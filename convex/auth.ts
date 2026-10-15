@@ -1,63 +1,83 @@
+import { Password } from "@convex-dev/auth/providers/Password";
+import { convexAuth, getAuthSessionId, getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError } from "convex/values";
-import { QueryCtx, MutationCtx, ActionCtx } from "./_generated/server";
+import { api } from "./_generated/api";
+import { query, QueryCtx, MutationCtx, ActionCtx } from "./_generated/server";
 import { Id } from "./_generated/dataModel";
 
-type ClerkIdentity = NonNullable<Awaited<ReturnType<QueryCtx["auth"]["getUserIdentity"]>>>;
+export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
+  providers: [
+    Password({
+      profile(params) {
+        // Accounts are provisioned by the operator. Unverified email signup
+        // would let someone claim the email on another person's team invite.
+        if (params.flow !== "signIn") {
+          throw new ConvexError("Account registration is managed by your Lawn operator.");
+        }
+        if (typeof params.email !== "string") {
+          throw new ConvexError("Enter your email address.");
+        }
+        return { email: params.email.trim().toLowerCase() };
+      },
+    }),
+  ],
+});
 
-function hasString(value: unknown): value is string {
-  return typeof value === "string" && value.length > 0;
+export type AppUser = {
+  subject: Id<"users">;
+  email: string;
+  name: string;
+  pictureUrl?: string;
+};
+
+export function identityName(user: AppUser): string {
+  return user.name || user.email;
 }
 
-function getOptionalString(identity: ClerkIdentity, key: string): string | undefined {
-  const value = (identity as Record<string, unknown>)[key];
-  return hasString(value) ? value : undefined;
+export function identityEmail(user: AppUser): string {
+  return user.email;
 }
 
-export function identityName(identity: ClerkIdentity): string {
-  const name = getOptionalString(identity, "name");
-  if (name) return name;
-
-  const firstName = getOptionalString(identity, "firstName");
-  const lastName = getOptionalString(identity, "lastName");
-  if (firstName && lastName) return `${firstName} ${lastName}`;
-
-  const email = getOptionalString(identity, "email");
-  if (email) return email;
-
-  return "Unknown";
+export function identityAvatarUrl(user: AppUser): string | undefined {
+  return user.pictureUrl;
 }
 
-export function identityEmail(identity: ClerkIdentity): string {
-  return getOptionalString(identity, "email") ?? "";
+export async function getUser(ctx: QueryCtx | MutationCtx): Promise<AppUser | null> {
+  const authUserId = await getAuthUserId(ctx);
+  if (!authUserId) return null;
+  const userId = ctx.db.normalizeId("users", authUserId);
+  if (!userId) return null;
+  const authSessionId = await getAuthSessionId(ctx);
+  if (!authSessionId) return null;
+  const sessionId = ctx.db.normalizeId("authSessions", authSessionId);
+  if (!sessionId) return null;
+  const session = await ctx.db.get(sessionId);
+  if (!session || session.userId !== userId || session.expirationTime <= Date.now()) return null;
+  const user = await ctx.db.get(userId);
+  if (!user?.email) return null;
+  return {
+    subject: user._id,
+    email: user.email,
+    name: user.name ?? user.email,
+    pictureUrl: user.image,
+  };
 }
 
-export function identityAvatarUrl(identity: ClerkIdentity): string | undefined {
-  return getOptionalString(identity, "pictureUrl");
-}
-
-export async function getUser(ctx: QueryCtx | MutationCtx) {
-  const identity = await ctx.auth.getUserIdentity();
-  if (!identity) {
-    return null;
-  }
-
-  return identity;
-}
-
-export async function requireUser(ctx: QueryCtx | MutationCtx) {
+export async function requireUser(ctx: QueryCtx | MutationCtx): Promise<AppUser> {
   const user = await getUser(ctx);
-  if (!user) {
-    throw new Error("Not authenticated");
-  }
+  if (!user) throw new ConvexError("Not authenticated");
   return user;
 }
 
-export async function getIdentity(ctx: ActionCtx) {
-  const identity = await ctx.auth.getUserIdentity();
-  if (!identity) {
-    throw new Error("Not authenticated");
-  }
-  return identity;
+export const current = query({
+  args: {},
+  handler: async (ctx): Promise<AppUser | null> => getUser(ctx),
+});
+
+export async function getIdentity(ctx: ActionCtx): Promise<AppUser> {
+  const user: AppUser | null = await ctx.runQuery(api.auth.current, {});
+  if (!user) throw new ConvexError("Not authenticated");
+  return user;
 }
 
 const ROLE_HIERARCHY = {

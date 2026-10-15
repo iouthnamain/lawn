@@ -13,18 +13,8 @@ type SeoOptions = {
 };
 
 export function muxMediaLinks() {
-  return [
-    {
-      rel: "preconnect",
-      href: "https://stream.mux.com",
-      crossOrigin: "anonymous" as const,
-    },
-    {
-      rel: "preconnect",
-      href: "https://image.mux.com",
-      crossOrigin: "anonymous" as const,
-    },
-  ];
+  // Self-hosted media uses the application's existing connection.
+  return [];
 }
 
 export function convexConnectionLinks() {

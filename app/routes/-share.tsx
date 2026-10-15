@@ -1,7 +1,7 @@
 import { useAction, useMutation } from "convex/react";
 import { api } from "@convex/_generated/api";
 import { Link, useParams } from "@tanstack/react-router";
-import { useUser } from "@clerk/tanstack-react-start";
+import { useUser } from "@/lib/auth";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { VideoPlayer, type VideoPlayerHandle } from "@/components/video-player/VideoPlayer";
 import { Button } from "@/components/ui/button";
@@ -201,6 +201,17 @@ export default function SharePage() {
       };
     });
   }, [grantToken, muxPlaybackId, playbackSource?.revision, token]);
+
+  useEffect(() => {
+    if (!grantToken || !muxPlaybackId) return;
+    const requestSession = () => {
+      setPlaybackRecoveryError(null);
+      setPlaybackRequest({ scopeKey: token, playbackId: muxPlaybackId, revision: Date.now() });
+    };
+    requestSession();
+    const refresh = window.setInterval(requestSession, 45 * 60 * 1000);
+    return () => window.clearInterval(refresh);
+  }, [token, muxPlaybackId, grantToken]);
 
   const handlePlaybackIssue = useCallback(() => {
     if (!muxPlaybackId || !playbackSource || activePlaybackRequest) return;
@@ -511,13 +522,6 @@ export default function SharePage() {
             </>
           ) : (
             <div className="relative aspect-video overflow-hidden rounded-xl border border-zinc-800/80 bg-black shadow-[0_10px_40px_rgba(0,0,0,0.45)]">
-              {video.thumbnailUrl?.startsWith("http") ? (
-                <img
-                  src={video.thumbnailUrl}
-                  alt={`${video.title} thumbnail`}
-                  className="h-full w-full object-cover blur-[4px]"
-                />
-              ) : null}
               <div className="absolute inset-0 bg-black/45" />
               <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-white">
                 <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-white/80" />

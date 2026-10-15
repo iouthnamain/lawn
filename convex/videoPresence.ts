@@ -3,7 +3,13 @@ import { ConvexError, v } from "convex/values";
 import { components } from "./_generated/api";
 import { query, MutationCtx } from "./_generated/server";
 import { mutation } from "./functions";
-import { identityAvatarUrl, identityName, requireProjectAccess, requireVideoAccess } from "./auth";
+import {
+  getUser,
+  identityAvatarUrl,
+  identityName,
+  requireProjectAccess,
+  requireVideoAccess,
+} from "./auth";
 import { findShareLinkByToken } from "./shareAccess";
 
 const presence = new Presence(components.presence);
@@ -55,7 +61,7 @@ export const heartbeat = mutation({
     sessionToken: v.string(),
   }),
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
+    const identity = await getUser(ctx);
 
     let hasVideoAccess = false;
     if (identity) {
@@ -89,7 +95,7 @@ export const heartbeat = mutation({
     };
 
     if (identity) {
-      userId = `clerk:${identity.subject}`;
+      userId = `local:${identity.subject}`;
       data = {
         kind: "member",
         displayName: identityName(identity),

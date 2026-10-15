@@ -30,7 +30,7 @@ export function getS3Client(): S3Client {
   const secretAccessKey = process.env.RAILWAY_SECRET_ACCESS_KEY;
 
   if (!accessKeyId || !secretAccessKey) {
-    throw new Error("Missing Railway S3 credentials");
+    throw new Error("Missing S3 credentials");
   }
 
   _s3Client = new S3Client({
@@ -41,6 +41,9 @@ export function getS3Client(): S3Client {
       secretAccessKey,
     },
     forcePathStyle: true,
+    // Presigned uploads do not know the browser body when signing.
+    requestChecksumCalculation: "WHEN_REQUIRED",
+    responseChecksumValidation: "WHEN_REQUIRED",
   });
   return _s3Client;
 }

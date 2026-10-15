@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { ClerkConvexProvider } from "@/lib/convex";
+import { ConvexClientProvider } from "@/lib/convex";
 import { convexConnectionLinks, seoHead } from "@/lib/seo";
 import InvitePage from "./-invite";
 
@@ -19,8 +19,8 @@ export const Route = createFileRoute("/invite/$token")({
 
 function InviteRoute() {
   return (
-    <ClerkConvexProvider>
+    <ConvexClientProvider>
       <InvitePage />
-    </ClerkConvexProvider>
+    </ConvexClientProvider>
   );
 }

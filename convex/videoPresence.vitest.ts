@@ -1,26 +1,25 @@
 /// <reference types="vite/client" />
 
-import { convexTest } from "convex-test";
 import { expect, test } from "vitest";
 import presenceTest from "@convex-dev/presence/test";
 import { api } from "./_generated/api";
-import schema from "./schema";
+import { createTestBackend } from "./test.setup";
 
 const modules = import.meta.glob("./**/*.ts");
 
 test("project presence is authorized and strictly bounded to requested videos", async () => {
-  const t = convexTest(schema, modules);
+  const t = await createTestBackend(modules);
   presenceTest.register(t);
   const seeded = await t.run(async (ctx) => {
     const teamId = await ctx.db.insert("teams", {
       name: "Garden",
       slug: "garden",
-      ownerClerkId: "owner",
+      ownerClerkId: t.users.owner.id,
       plan: "basic",
     });
     await ctx.db.insert("teamMembers", {
       teamId,
-      userClerkId: "owner",
+      userClerkId: t.users.owner.id,
       userEmail: "owner@example.com",
       userName: "Owner",
       role: "owner",
@@ -32,7 +31,7 @@ test("project presence is authorized and strictly bounded to requested videos", 
       videoIds.push(
         await ctx.db.insert("videos", {
           projectId,
-          uploadedByClerkId: "owner",
+          uploadedByClerkId: t.users.owner.id,
           uploaderName: "Owner",
           title: `Video ${index}`,
           visibility: "public",
@@ -44,7 +43,7 @@ test("project presence is authorized and strictly bounded to requested videos", 
     }
     const otherVideoId = await ctx.db.insert("videos", {
       projectId: otherProjectId,
-      uploadedByClerkId: "owner",
+      uploadedByClerkId: t.users.owner.id,
       uploaderName: "Owner",
       title: "Other video",
       visibility: "public",
@@ -55,7 +54,7 @@ test("project presence is authorized and strictly bounded to requested videos", 
     return { projectId, videoIds, otherVideoId };
   });
 
-  const authed = t.withIdentity({ subject: "owner" });
+  const authed = t.withIdentity(t.users.owner.identity);
   await expect(
     authed.query(api.videoPresence.listProjectOnlineCounts, {
       projectId: seeded.projectId,
@@ -100,7 +99,7 @@ test("project presence is authorized and strictly bounded to requested videos", 
     }),
   ).resolves.toEqual({ counts: { [seeded.videoIds[0]]: 1 } });
   await expect(
-    t.withIdentity({ subject: "not-a-member" }).query(api.videoPresence.listProjectOnlineCounts, {
+    t.withIdentity(t.users.outsider.identity).query(api.videoPresence.listProjectOnlineCounts, {
       projectId: seeded.projectId,
       videoIds: [],
     }),
